@@ -6,7 +6,7 @@
   /* Telegram передаёт свои цвета через CSS-переменные */
   --tg-bg:           var(--tg-theme-bg-color,       #ffffff);
   --tg-text:         var(--tg-theme-text-color,      #000000);
-  --tg-hint:         var(--tg-theme-hint-color,      #999999);
+  --tg-hint:         var(--tg-theme-hint-color,      #555555);
   --tg-section-bg:   var(--tg-theme-section-bg-color, #f4f4f5);
   --tg-button:       var(--tg-theme-button-color,    #2AABEE);
   --tg-button-text:  var(--tg-theme-button-text-color, #ffffff);
@@ -142,6 +142,15 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.logo-address {
+  font-size: 11px;
+  color: var(--tg-hint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
 }
 
 /* --- Табы категорий --- */
@@ -726,6 +735,7 @@ html, body {
 .cup.free-cup.filled .cup-svg .cup-handle { stroke: #8B2ECC; }
 .cup.free-cup.filled .cup-svg .cup-rim { fill: #8B2ECC; stroke: #8B2ECC; }
 
+
 .cup-label {
   font-size: 9px;
   font-weight: 600;
@@ -804,7 +814,7 @@ html, body {
   :root {
     --tg-bg:         #1c1c1e;
     --tg-text:       #ffffff;
-    --tg-hint:       #8e8e93;
+    --tg-hint:       #b0b0b5;
     --tg-section-bg: #2c2c2e;
   }
 

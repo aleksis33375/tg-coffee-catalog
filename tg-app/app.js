@@ -262,13 +262,14 @@ function renderPromoDiscount(promo) {
 }
 
 function renderPromoCups(promo) {
-  const count = getCupsCount();           // 0–5: сколько уже куплено
-  const isFree = count >= promo.totalCups - 1; // 5 куплено → 6-я бесплатна
+  const count  = getCupsCount();                    // 0–6: сколько отмечено
+  const isFree = count >= promo.totalCups;           // все 6 отмечены → показать сообщение
 
   // Генерируем 6 кружек
+  // Кружки 1–5 → чёрные по одной, кружка 6 (FREE) → фиолетовая на 6-м клике
   const cupsHTML = Array.from({ length: promo.totalCups }, (_, i) => {
     const isFreeCup = i === promo.totalCups - 1;
-    const isFilled  = isFreeCup ? isFree : i < count;
+    const isFilled  = i < count; // все кружки включая FREE заполняются по счётчику
     return `
       <div class="cup ${isFilled ? 'filled' : ''} ${isFreeCup ? 'free-cup' : ''}">
         ${cupSVG()}
@@ -276,9 +277,10 @@ function renderPromoCups(promo) {
       </div>`;
   }).join('');
 
+  const remaining = promo.totalCups - count;
   const statusText = isFree
     ? '🎉 Твоя 6-я кружка бесплатно! Покажи бариста.'
-    : `Осталось ${promo.totalCups - 1 - count} кружки до бесплатной`;
+    : `Осталось ${remaining} ${remaining === 1 ? 'кружка' : 'кружки'} до бесплатной`;
 
   return `
     <div class="promo-card">
@@ -293,7 +295,7 @@ function renderPromoCups(promo) {
 
         <div class="cups-action">
           <button class="btn-cup-add" ${isFree ? 'disabled style="opacity:0.5"' : ''}>
-            ${isFree ? '🎁 Забери бесплатную!' : '☕ Отметить кружку'}
+            ${isFree ? '🎁 Забери и сбрось счётчик!' : '☕ Отметить кружку'}
           </button>
           <button class="btn-cup-reset" title="Сбросить">↺</button>
         </div>
@@ -315,7 +317,7 @@ function addCup() {
   const count = getCupsCount();
   const total = state.menuData.promos.find(p => p.type === 'loyalty_cups')?.totalCups || 6;
 
-  if (count >= total - 1) return; // уже готово — ждём списания
+  if (count >= total) return; // все 6 отмечены — ждём сброса
 
   tg?.HapticFeedback?.impactOccurred('medium');
   localStorage.setItem(CUPS_KEY, count + 1);
@@ -326,18 +328,10 @@ function addCup() {
 }
 
 function resetCups() {
-  tg?.HapticFeedback?.impactOccurred('light');
-
-  if (tg?.showConfirm) {
-    tg.showConfirm('Сбросить счётчик кружек?', (confirmed) => {
-      if (confirmed) { localStorage.setItem(CUPS_KEY, '0'); renderPromos(document.getElementById('catalog-grid')); }
-    });
-  } else {
-    // Fallback для браузера
-    if (confirm('Сбросить счётчик кружек?')) {
-      localStorage.setItem(CUPS_KEY, '0');
-      renderPromos(document.getElementById('catalog-grid'));
-    }
+  if (confirm('Сбросить счётчик кружек?')) {
+    try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+    localStorage.setItem(CUPS_KEY, '0');
+    renderPromos(document.getElementById('catalog-grid'));
   }
 }
 
