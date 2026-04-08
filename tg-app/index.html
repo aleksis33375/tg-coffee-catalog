@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <!-- Запрещаем масштабирование — приложение, не сайт -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Каталог кофейни</title>
+
+  <!-- Telegram Mini App SDK — обязательно первым -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       ЭКРАН 1: КАТАЛОГ (стартовый)
+       ═══════════════════════════════════════════ -->
+  <div id="screen-catalog" class="screen active">
+
+    <!-- Шапка с логотипом кофейни -->
+    <header class="catalog-header">
+      <div class="logo-icon" aria-hidden="true">☕</div>
+      <div class="logo-text">
+        <span class="logo-name" id="cafe-name">Bona Coffee</span>
+        <span class="logo-tagline" id="cafe-tagline">Настоящий кофе рядом с тобой</span>
+      </div>
+    </header>
+
+    <!-- Горизонтальные табы категорий -->
+    <nav class="tabs-wrap" aria-label="Категории">
+      <div class="tabs" id="category-tabs" role="tablist">
+        <!-- Генерируется через JS из menu.json -->
+      </div>
+    </nav>
+
+    <!-- Сетка карточек -->
+    <main class="catalog-grid" id="catalog-grid" role="list">
+      <!-- Skeleton-заглушки пока грузится JSON -->
+      <div class="card skeleton" aria-hidden="true"></div>
+      <div class="card skeleton" aria-hidden="true"></div>
+      <div class="card skeleton" aria-hidden="true"></div>
+      <div class="card skeleton" aria-hidden="true"></div>
+    </main>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════
+       ЭКРАН 2: КАРТОЧКА ТОВАРА
+       ═══════════════════════════════════════════ -->
+  <div id="screen-detail" class="screen" aria-hidden="true">
+
+    <!-- Большое фото / иллюстрация -->
+    <div class="detail-hero" id="detail-hero" aria-hidden="true">
+      <div class="detail-hero-emoji" id="detail-emoji"></div>
+      <!-- Бейдж «Хит» / «Новинка» поверх фото -->
+      <div class="detail-badge-wrap" id="detail-badge-wrap"></div>
+    </div>
+
+    <!-- Прокручиваемое тело карточки -->
+    <div class="detail-body">
+
+      <!-- Название + цена -->
+      <div class="detail-top">
+        <h1 class="detail-name" id="detail-name"></h1>
+        <div class="detail-price" id="detail-price"></div>
+      </div>
+
+      <!-- Описание -->
+      <p class="detail-desc" id="detail-desc"></p>
+
+      <!-- Отзыв покупателя -->
+      <div class="detail-review" id="detail-review">
+        <!-- Генерируется через JS -->
+      </div>
+
+      <!-- Отступ под MainButton — чтобы контент не скрывался -->
+      <div class="detail-bottom-spacer"></div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════
+       ЭКРАН 3: ПОДТВЕРЖДЕНИЕ ЗАПИСИ
+       ═══════════════════════════════════════════ -->
+  <div id="screen-confirm" class="screen" aria-hidden="true">
+    <div class="confirm-body">
+
+      <!-- Анимированная галочка -->
+      <div class="confirm-check" aria-hidden="true">
+        <svg class="check-svg" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle class="check-circle" cx="26" cy="26" r="24" stroke-width="3"/>
+          <path class="check-tick" d="M14 26 L22 34 L38 18" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <p class="confirm-label">Отлично! Ты выбрал:</p>
+      <h2 class="confirm-item-name" id="confirm-item-name"></h2>
+      <div class="confirm-item-price" id="confirm-item-price"></div>
+
+      <p class="confirm-hint">
+        Нажми кнопку ниже — менеджер<br>
+        ответит в течение 5 минут&nbsp;⚡
+      </p>
+    </div>
+  </div>
+
+
+  <!-- Вся логика — в app.js -->
+  <script src="app.js"></script>
+</body>
+</html>

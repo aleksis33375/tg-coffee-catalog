@@ -1,0 +1,12 @@
+{
+  "name": "menu-scraper",
+  "version": "1.0.0",
+  "description": "Парсер меню кофейни Hot Black с Яндекс Карт",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "node scraper.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.40.0"
+  }
+}
