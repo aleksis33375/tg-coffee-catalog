@@ -233,8 +233,7 @@ html, body {
   background: var(--tg-section-bg);
   border-radius: var(--radius-card);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  display: block; /* block: грид правильно считает высоту строки = фото + тело */
   cursor: pointer;
   transition: transform var(--transition-ui), box-shadow var(--transition-ui);
   position: relative;
@@ -258,7 +257,6 @@ html, body {
   font-size: 48px;
   overflow: hidden;
   position: relative;
-  flex-shrink: 0;
 }
 
 /* Фото внутри card-img */
@@ -294,7 +292,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
 }
 
 .card-name {
@@ -361,6 +358,64 @@ html, body {
 .btn-select:active {
   background: var(--accent-dark);
   transform: scale(0.97);
+}
+
+/* Кнопка «+ В корзину» на карточке */
+.btn-cart-add {
+  margin-top: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-ui), transform var(--transition-ui);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-cart-add:active {
+  background: var(--accent-dark);
+  transform: scale(0.97);
+}
+
+/* Степпер − qty + на карточке */
+.card-stepper {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--tg-section-bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 36px;
+}
+.stepper-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-ui);
+  flex-shrink: 0;
+}
+.stepper-btn:active { background: rgba(42,171,238,0.12); }
+.stepper-qty {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tg-text);
+  min-width: 24px;
+  text-align: center;
 }
 
 /* --- Skeleton-анимация загрузки --- */
@@ -491,6 +546,52 @@ html, body {
   font-style: italic;
 }
 
+/* Степпер количества на экране детали */
+.detail-stepper-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-top: 1px solid rgba(0,0,0,0.07);
+  margin-bottom: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  .detail-stepper-wrap { border-top-color: rgba(255,255,255,0.08); }
+}
+.detail-stepper-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--tg-hint);
+}
+.detail-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--tg-section-bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.detail-stepper-btn {
+  width: 44px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background var(--transition-ui);
+}
+.detail-stepper-btn:active { background: rgba(42,171,238,0.12); }
+.detail-stepper-qty {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--tg-text);
+  min-width: 32px;
+  text-align: center;
+}
+
 /* Отступ под нативный MainButton Telegram */
 .detail-bottom-spacer {
   height: 80px;
@@ -508,6 +609,8 @@ html, body {
   justify-content: center;
   padding: 40px var(--padding-h) 100px;
   text-align: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Анимированная галочка */
@@ -580,6 +683,85 @@ html, body {
   line-height: 1.6;
 }
 
+/* ── Переключатель Самовывоз / Доставка ── */
+.delivery-toggle {
+  display: flex;
+  gap: 0;
+  background: var(--tg-section-bg);
+  border-radius: 12px;
+  padding: 4px;
+  margin: 20px 0 16px;
+  width: 100%;
+}
+
+.delivery-tab {
+  flex: 1;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tg-hint);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+
+.delivery-tab.active {
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  font-weight: 600;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+}
+
+/* ── Поля формы ── */
+.delivery-fields {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.delivery-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.delivery-field.hidden {
+  display: none;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tg-hint);
+}
+
+.field-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid rgba(0,0,0,0.1);
+  border-radius: 10px;
+  background: var(--tg-section-bg);
+  color: var(--tg-text);
+  font-size: 15px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field-input:focus {
+  border-color: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .field-input { border-color: rgba(255,255,255,0.1); }
+  .delivery-tab.active { box-shadow: 0 1px 6px rgba(0,0,0,0.4); }
+}
+
 
 /* ═══════════════════════════════════════════════════════
    ПРОМО-БЛОКИ (вкладка «Акции»)
@@ -604,6 +786,113 @@ html, body {
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+  flex-shrink: 0;
+}
+
+/* ── Плавающая полоска корзины ── */
+.cart-bar {
+  position: fixed;
+  bottom: -80px;
+  left: 12px;
+  right: 12px;
+  z-index: 9999; /* выше browser-main-btn */
+  background: var(--tg-text);
+  color: var(--tg-bg);
+  border-radius: 16px;
+  padding: 10px 10px 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.22);
+  transition: bottom 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.cart-bar.visible {
+  bottom: var(--cart-bar-bottom, 16px);
+}
+.cart-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cart-bar-icon { font-size: 22px; }
+.cart-bar-count {
+  font-size: 13px;
+  opacity: 0.7;
+  line-height: 1.2;
+}
+.cart-bar-price {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.cart-bar-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--transition-ui);
+}
+.cart-bar-btn:active { transform: scale(0.96); }
+
+/* ── Список товаров на экране подтверждения ── */
+.confirm-cart-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+  text-align: left;
+}
+.confirm-cart-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.confirm-cart-item-name {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--tg-text);
+  flex: 1;
+}
+.confirm-cart-item-qty {
+  font-size: var(--text-sm);
+  color: var(--tg-hint);
+  white-space: nowrap;
+}
+.confirm-cart-item-price {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--price-color);
+  white-space: nowrap;
+}
+.confirm-total {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  margin-bottom: 20px;
+}
+@media (prefers-color-scheme: dark) {
+  .confirm-total { border-top-color: rgba(255,255,255,0.08); }
+}
+.confirm-total-label {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--tg-text);
+}
+.confirm-total-price {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--price-color);
 }
 
 /* ── Блок 1: Скидка на первый заказ ── */
@@ -613,7 +902,7 @@ html, body {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  aspect-ratio: 16 / 9;   /* фиксированная пропорция, не плывёт */
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   gap: 2px;
 }
@@ -622,6 +911,7 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
   display: block;
 }
 
@@ -635,7 +925,7 @@ html, body {
 
 /* Тело — строго под фото, никогда не налезает */
 .promo-body {
-  padding: 14px 16px 16px;
+  padding: 10px 16px 12px;
   background: var(--tg-section-bg);
 }
 
@@ -649,7 +939,7 @@ html, body {
   letter-spacing: 0.5px;
   padding: 3px 10px;
   border-radius: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .promo-title {
@@ -657,7 +947,7 @@ html, body {
   font-weight: 700;
   color: var(--tg-text);
   line-height: 1.3;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .promo-title span {
@@ -668,7 +958,7 @@ html, body {
   font-size: 14px;
   color: var(--tg-hint);
   line-height: 1.5;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .promo-date {
@@ -697,7 +987,7 @@ html, body {
   justify-content: space-between;
   align-items: flex-end;
   gap: 6px;
-  margin: 16px 0 20px;
+  margin: 16px 0 7px;  /* 20px → 7px: отступ до кнопки сокращён на ~67% */
 }
 
 /* Одна кружка */
@@ -789,6 +1079,7 @@ html, body {
   text-align: center;
   font-size: 13px;
   color: var(--tg-hint);
+  margin-top: 8px;
   margin-bottom: 14px;
 }
 .cups-status.ready {

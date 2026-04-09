@@ -16,14 +16,14 @@
   <!-- ═══════════════════════════════════════════
        ЭКРАН 1: КАТАЛОГ (стартовый)
        ═══════════════════════════════════════════ -->
-  <div id="screen-catalog" class="screen active">
+  <div id="screen-catalog" class="screen active" aria-hidden="false">
 
     <!-- Шапка с логотипом кофейни -->
     <header class="catalog-header">
       <div class="logo-icon" aria-hidden="true">☕</div>
       <div class="logo-text">
-        <span class="logo-name" id="cafe-name">Bona Coffee</span>
-        <span class="logo-tagline" id="cafe-tagline">Настоящий кофе рядом с тобой</span>
+        <span class="logo-name" id="cafe-name">Hot Black Coffee</span>
+        <span class="logo-tagline" id="cafe-tagline">Настоящий кофе в твоём городе</span>
         <span class="logo-address">г. Королёв, мкрн. Ясный, ул. Красная</span>
       </div>
     </header>
@@ -75,6 +75,16 @@
         <!-- Генерируется через JS -->
       </div>
 
+      <!-- Степпер количества -->
+      <div class="detail-stepper-wrap" id="detail-stepper-wrap">
+        <span class="detail-stepper-label">Количество</span>
+        <div class="detail-stepper">
+          <button class="detail-stepper-btn" id="detail-minus">−</button>
+          <span class="detail-stepper-qty" id="detail-qty">0</span>
+          <button class="detail-stepper-btn" id="detail-plus">+</button>
+        </div>
+      </div>
+
       <!-- Отступ под MainButton — чтобы контент не скрывался -->
       <div class="detail-bottom-spacer"></div>
     </div>
@@ -95,9 +105,27 @@
         </svg>
       </div>
 
-      <p class="confirm-label">Отлично! Ты выбрал:</p>
-      <h2 class="confirm-item-name" id="confirm-item-name"></h2>
-      <div class="confirm-item-price" id="confirm-item-price"></div>
+      <p class="confirm-label">Отлично! Твой заказ:</p>
+      <div class="confirm-cart-list" id="confirm-cart-list"></div>
+      <div class="confirm-total" id="confirm-total"></div>
+
+      <!-- Переключатель способа получения -->
+      <div class="delivery-toggle">
+        <button class="delivery-tab active" data-type="pickup">🏠 Самовывоз</button>
+        <button class="delivery-tab" data-type="delivery">🚗 Доставка</button>
+      </div>
+
+      <!-- Поля — появляются в зависимости от выбора -->
+      <div class="delivery-fields" id="delivery-fields">
+        <div class="delivery-field" id="field-time">
+          <label class="field-label">К какому времени приготовить?</label>
+          <input class="field-input" type="time" id="input-time">
+        </div>
+        <div class="delivery-field hidden" id="field-address">
+          <label class="field-label">Адрес доставки</label>
+          <input class="field-input" type="text" id="input-address" placeholder="Улица, дом, квартира">
+        </div>
+      </div>
 
       <p class="confirm-hint">
         Нажми кнопку ниже — менеджер<br>
@@ -106,6 +134,18 @@
     </div>
   </div>
 
+
+  <!-- Плавающая полоска корзины -->
+  <div class="cart-bar" id="cart-bar">
+    <div class="cart-bar-left">
+      <span class="cart-bar-icon">🛒</span>
+      <div class="cart-bar-text">
+        <div class="cart-bar-count" id="cart-bar-count">1 позиция</div>
+        <div class="cart-bar-price" id="cart-bar-price">220 ₽</div>
+      </div>
+    </div>
+    <button class="cart-bar-btn" id="cart-bar-btn">Оформить →</button>
+  </div>
 
   <!-- Вся логика — в app.js -->
   <script src="app.js"></script>

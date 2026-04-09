@@ -15,8 +15,9 @@ if (tg) {
 const state = {
   menuData: null,          // загруженные данные из menu.json
   currentCategory: 'Кофе', // активная категория
-  currentItem: null,       // выбранный товар (для экрана 2 и 3)
-  currentScreen: 'catalog' // 'catalog' | 'detail' | 'confirm'
+  currentItem: null,       // выбранный товар (для экрана 2)
+  currentScreen: 'catalog', // 'catalog' | 'detail' | 'confirm'
+  cart: []                 // [{id, qty}]
 };
 
 
@@ -62,11 +63,138 @@ function initApp() {
   renderTabs();
   renderCards();
 
+  // Кнопка корзины — открывает экран подтверждения
+  document.getElementById('cart-bar-btn')?.addEventListener('click', openConfirm);
+
   // Настраиваем BackButton Telegram (скрыт на главном)
   if (tg?.BackButton) {
     tg.BackButton.hide();
     tg.BackButton.onClick(handleBackButton);
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   КОРЗИНА
+   ═══════════════════════════════════════════════════════ */
+
+function cartGet(id) {
+  return state.cart.find(i => i.id === id);
+}
+
+function cartAdd(id) {
+  const entry = cartGet(id);
+  if (entry) { entry.qty++; } else { state.cart.push({ id, qty: 1 }); }
+  try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+  updateCardButton(id);
+  updateDetailStepper();
+  renderCartBar();
+}
+
+function cartDecrement(id) {
+  const entry = cartGet(id);
+  if (!entry) return;
+  entry.qty--;
+  if (entry.qty <= 0) state.cart = state.cart.filter(i => i.id !== id);
+  try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+  updateCardButton(id);
+  updateDetailStepper();
+  renderCartBar();
+}
+
+function cartTotal() {
+  return state.cart.reduce((sum, entry) => {
+    const item = state.menuData.items.find(i => i.id === entry.id);
+    return sum + (item ? item.price * entry.qty : 0);
+  }, 0);
+}
+
+function cartCount() {
+  return state.cart.reduce((sum, e) => sum + e.qty, 0);
+}
+
+function clearCart() {
+  state.cart = [];
+  renderCartBar();
+  // Обновляем кнопки всех карточек в текущем виде
+  document.querySelectorAll('.card').forEach(card => {
+    const id = parseInt(card.dataset.id, 10);
+    const btnArea = card.querySelector('.card-btn-area');
+    if (btnArea) btnArea.innerHTML = cardButtonHTML(id);
+  });
+}
+
+const CART_SPACER_ID = 'cart-bottom-spacer';
+
+function renderCartBar() {
+  const bar = document.getElementById('cart-bar');
+  if (!bar) return;
+  const count = cartCount();
+
+  // Убираем старый спейсер при каждом вызове
+  document.getElementById(CART_SPACER_ID)?.remove();
+
+  // На экране подтверждения корзина скрыта — заказ уже показан там
+  if (count === 0 || state.currentScreen === 'confirm') {
+    bar.classList.remove('visible');
+    // Сбрасываем оба способа отступа
+    const container = document.getElementById('catalog-grid');
+    if (container) container.style.paddingBottom = '';
+    document.querySelector('.promo-cups-body')?.style.removeProperty('padding-bottom');
+  } else {
+    const plural = count === 1 ? 'позиция' : count < 5 ? 'позиции' : 'позиций';
+    document.getElementById('cart-bar-count').textContent = `${count} ${plural}`;
+    document.getElementById('cart-bar-price').textContent = `${cartTotal()} ₽`;
+    bar.classList.add('visible');
+
+    const container = document.getElementById('catalog-grid');
+    if (container) {
+      if (container.classList.contains('promo-list')) {
+        // Flex-контейнер (Акции): DOM-спейсер — padding-bottom здесь ненадёжен в WebKit
+        const spacer = document.createElement('div');
+        spacer.id = CART_SPACER_ID;
+        spacer.style.height = '96px';
+        spacer.style.flexShrink = '0';
+        container.appendChild(spacer);
+
+        // Кнопки внутри карточки кружек — поднять выше cart bar
+        const cupsBody = container.querySelector('.promo-cups-body');
+        if (cupsBody) cupsBody.style.paddingBottom = '96px';
+      } else {
+        // CSS Grid (каталог): padding-bottom работает корректно, не ломает grid-layout
+        container.style.paddingBottom = '96px';
+      }
+    }
+  }
+}
+
+function cardButtonHTML(id) {
+  const entry = cartGet(id);
+  const qty = entry ? entry.qty : 0;
+  if (qty === 0) {
+    return `<button class="btn-cart-add" data-id="${id}">+ В корзину</button>`;
+  }
+  return `
+    <div class="card-stepper">
+      <button class="stepper-btn stepper-minus" data-id="${id}">−</button>
+      <span class="stepper-qty">${qty}</span>
+      <button class="stepper-btn stepper-plus" data-id="${id}">+</button>
+    </div>`;
+}
+
+function updateCardButton(id) {
+  const card = document.querySelector(`.card[data-id="${id}"]`);
+  if (!card) return;
+  const btnArea = card.querySelector('.card-btn-area');
+  if (btnArea) btnArea.innerHTML = cardButtonHTML(id);
+}
+
+function updateDetailStepper() {
+  const item = state.currentItem;
+  if (!item) return;
+  const qty = cartGet(item.id)?.qty || 0;
+  const el = document.getElementById('detail-qty');
+  if (el) el.textContent = qty;
 }
 
 
@@ -136,36 +264,41 @@ function renderCards() {
 
   container.innerHTML = items.map(item => createCardHTML(item)).join('');
 
-  // Навешиваем обработчики на кнопки
-  container.querySelectorAll('.btn-select').forEach(btn => {
-    const id = parseInt(btn.dataset.id, 10);
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation(); // не открываем карточку при клике на кнопку
-      openDetail(id);
-    });
-  });
+  // Единый обработчик кликов через делегирование (onclick — не накапливается при перерисовке)
+  container.onclick = e => {
+    if (e.target.closest('.btn-cart-add')) {
+      const id = parseInt(e.target.closest('.btn-cart-add').dataset.id, 10);
+      cartAdd(id);
+      return;
+    }
+    if (e.target.closest('.stepper-plus')) {
+      const id = parseInt(e.target.closest('.stepper-plus').dataset.id, 10);
+      cartAdd(id);
+      return;
+    }
+    if (e.target.closest('.stepper-minus')) {
+      const id = parseInt(e.target.closest('.stepper-minus').dataset.id, 10);
+      cartDecrement(id);
+      return;
+    }
+    const card = e.target.closest('.card');
+    if (card) openDetail(parseInt(card.dataset.id, 10));
+  };
 
-  // Клик по самой карточке тоже открывает детали
-  container.querySelectorAll('.card').forEach(card => {
-    const id = parseInt(card.dataset.id, 10);
-    card.addEventListener('click', () => openDetail(id));
-  });
-
-  // Появление
+  // Появление + спейсер корзины
   requestAnimationFrame(() => {
     container.style.opacity = '1';
     container.style.transform = 'translateY(0)';
+    renderCartBar(); // добавляет спейсер после рендера карточек
   });
 }
 
 function createCardHTML(item) {
   const gradient = `linear-gradient(135deg, ${item.gradient[0]}, ${item.gradient[1]})`;
 
-  // Бейдж: акция — отдельный стиль, хит/новинка — стандартный
+  // Бейдж: хит / новинка
   let badgeHTML = '';
-  if (item.badge === 'акция' && item.promoLabel) {
-    badgeHTML = `<div class="badge badge-promo">${item.promoLabel}</div>`;
-  } else if (item.badge) {
+  if (item.badge) {
     badgeHTML = `<div class="badge badge-${item.badge === 'хит' ? 'hit' : 'new'}">${item.badge}</div>`;
   }
 
@@ -191,9 +324,7 @@ function createCardHTML(item) {
       <div class="card-body">
         <div class="card-name">${item.name}</div>
         ${priceHTML}
-        <button class="btn-select" data-id="${item.id}" aria-label="Выбрать ${item.name}">
-          Выбрать
-        </button>
+        <div class="card-btn-area">${cardButtonHTML(item.id)}</div>
       </div>
     </article>`;
 }
@@ -227,15 +358,17 @@ function renderPromos(container) {
     return '';
   }).join('');
 
-  // Навешиваем обработчики на кнопки кружек
+  // Навешиваем обработчики на кнопки кружек (onclick — не накапливается при перерисовке)
   const btnAdd   = container.querySelector('.btn-cup-add');
   const btnReset = container.querySelector('.btn-cup-reset');
-  if (btnAdd)   btnAdd.addEventListener('click',   addCup);
-  if (btnReset) btnReset.addEventListener('click', resetCups);
+  if (btnAdd)   btnAdd.onclick = addCup;
+  if (btnReset) btnReset.onclick = resetCups;
 
   requestAnimationFrame(() => {
     container.style.opacity = '1';
     container.style.transform = 'translateY(0)';
+    // Обновляем padding после смены класса контейнера
+    renderCartBar();
   });
 }
 
@@ -262,14 +395,15 @@ function renderPromoDiscount(promo) {
 }
 
 function renderPromoCups(promo) {
-  const count  = getCupsCount();                    // 0–6: сколько отмечено
-  const isFree = count >= promo.totalCups;           // все 6 отмечены → показать сообщение
+  const count        = getCupsCount();
+  const needed       = promo.totalCups - 1; // 5 куплено → право на бесплатную
+  const readyForFree = count === needed;     // ровно 5: пора отметить FREE-кружку
+  const isFree       = count >= promo.totalCups; // 6: все кружки отмечены
 
-  // Генерируем 6 кружек
-  // Кружки 1–5 → чёрные по одной, кружка 6 (FREE) → фиолетовая на 6-м клике
+  // Все кружки заполняются строго по порядку — каждая своим нажатием
   const cupsHTML = Array.from({ length: promo.totalCups }, (_, i) => {
     const isFreeCup = i === promo.totalCups - 1;
-    const isFilled  = i < count; // все кружки включая FREE заполняются по счётчику
+    const isFilled  = i < count; // заполняется только когда count > i
     return `
       <div class="cup ${isFilled ? 'filled' : ''} ${isFreeCup ? 'free-cup' : ''}">
         ${cupSVG()}
@@ -277,10 +411,18 @@ function renderPromoCups(promo) {
       </div>`;
   }).join('');
 
-  const remaining = promo.totalCups - count;
+  const remaining = needed - count;
+  const declension = remaining === 1 ? 'кружку' : remaining < 5 ? 'кружки' : 'кружек';
   const statusText = isFree
-    ? '🎉 Твоя 6-я кружка бесплатно! Покажи бариста.'
-    : `Осталось ${remaining} ${remaining === 1 ? 'кружка' : 'кружки'} до бесплатной`;
+    ? '🎉 Готово! Покажи этот экран бариста и сбрось счётчик.'
+    : readyForFree
+      ? '🎁 Твоя 6-я кружка бесплатна — отметь её!'
+      : `Осталось ${remaining} ${declension} до бесплатной`;
+
+  const btnDisabled = isFree ? 'disabled style="opacity:0.5"' : '';
+  const btnText     = isFree       ? '✓ Готово'
+                    : readyForFree ? '🎁 Отметить бесплатную'
+                    :                '☕ Отметить кружку';
 
   return `
     <div class="promo-card">
@@ -291,14 +433,12 @@ function renderPromoCups(promo) {
 
         <div class="cups-row">${cupsHTML}</div>
 
-        <div class="cups-status ${isFree ? 'ready' : ''}">${statusText}</div>
-
         <div class="cups-action">
-          <button class="btn-cup-add" ${isFree ? 'disabled style="opacity:0.5"' : ''}>
-            ${isFree ? '🎁 Забери и сбрось счётчик!' : '☕ Отметить кружку'}
-          </button>
+          <button class="btn-cup-add" ${btnDisabled}>${btnText}</button>
           <button class="btn-cup-reset" title="Сбросить">↺</button>
         </div>
+
+        <div class="cups-status ${isFree || readyForFree ? 'ready' : ''}">${statusText}</div>
 
         <p class="promo-items-hint">Участвуют: ${promo.items.join(', ')}</p>
       </div>
@@ -317,7 +457,7 @@ function addCup() {
   const count = getCupsCount();
   const total = state.menuData.promos.find(p => p.type === 'loyalty_cups')?.totalCups || 6;
 
-  if (count >= total) return; // все 6 отмечены — ждём сброса
+  if (count >= total) return; // все 6 кружек отмечены — ждём сброса
 
   tg?.HapticFeedback?.impactOccurred('medium');
   localStorage.setItem(CUPS_KEY, count + 1);
@@ -442,12 +582,19 @@ function openDetail(itemId) {
   // Прокручиваем тело к началу
   document.querySelector('.detail-body').scrollTop = 0;
 
+  // Степпер — показываем текущее кол-во из корзины
+  updateDetailStepper();
+  document.getElementById('detail-minus').onclick = () => cartDecrement(item.id);
+  document.getElementById('detail-plus').onclick  = () => cartAdd(item.id);
+
   // Показываем нативный BackButton Telegram
   if (tg?.BackButton) tg.BackButton.show();
 
-  // Показываем нативный MainButton «Записаться»
+  // MainButton — «← В меню»
   if (tg?.MainButton) {
-    tg.MainButton.setText('Записаться');
+    tg.MainButton.offClick(handleMainButton);
+    tg.MainButton.offClick(handleWriteToManager);
+    tg.MainButton.setText('← В меню');
     tg.MainButton.show();
     tg.MainButton.onClick(handleMainButton);
   }
@@ -462,42 +609,98 @@ function openDetail(itemId) {
    ═══════════════════════════════════════════════════════ */
 
 function openConfirm() {
-  const item = state.currentItem;
-  if (!item) return;
+  if (cartCount() === 0) return;
 
-  // Заполняем данные на экране подтверждения
-  document.getElementById('confirm-item-name').textContent = item.name;
-  document.getElementById('confirm-item-price').textContent = `${item.price} ₽`;
+  // Рендерим список позиций в корзине
+  const listEl  = document.getElementById('confirm-cart-list');
+  const totalEl = document.getElementById('confirm-total');
 
-  // MainButton меняем на «Написать в Telegram»
+  listEl.innerHTML = state.cart.map(entry => {
+    const item = state.menuData.items.find(i => i.id === entry.id);
+    if (!item) return '';
+    return `
+      <div class="confirm-cart-item">
+        <span class="confirm-cart-item-name">${item.name}</span>
+        <span class="confirm-cart-item-qty">${entry.qty} шт</span>
+        <span class="confirm-cart-item-price">${item.price * entry.qty} ₽</span>
+      </div>`;
+  }).join('');
+
+  totalEl.innerHTML = `
+    <span class="confirm-total-label">Итого</span>
+    <span class="confirm-total-price">${cartTotal()} ₽</span>`;
+
+  // Сбрасываем переключатель к «Самовывоз»
+  initDeliveryToggle();
+
+  // MainButton — «Написать в Telegram»
   if (tg?.MainButton) {
     tg.MainButton.offClick(handleMainButton);
+    tg.MainButton.offClick(handleWriteToManager);
     tg.MainButton.setText('Написать в Telegram');
+    tg.MainButton.show();
     tg.MainButton.onClick(handleWriteToManager);
   }
 
+  if (tg?.BackButton) tg.BackButton.show();
+
   // Переход на экран 3
   navigateTo('screen-confirm', 'forward');
+  // Скрываем полоску корзины — на экране подтверждения она не нужна
+  renderCartBar();
+}
+
+function initDeliveryToggle() {
+  // Сбрасываем поля
+  document.getElementById('input-time').value = '';
+  document.getElementById('input-address').value = '';
+
+  // Активируем «Самовывоз» по умолчанию
+  setDeliveryType('pickup');
+
+  // Вешаем обработчики на табы
+  document.querySelectorAll('.delivery-tab').forEach(btn => {
+    btn.onclick = () => setDeliveryType(btn.dataset.type);
+  });
+}
+
+function setDeliveryType(type) {
+  document.querySelectorAll('.delivery-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === type);
+  });
+  document.getElementById('field-address').classList.toggle('hidden', type !== 'delivery');
 }
 
 function handleWriteToManager() {
-  const item = state.currentItem;
-  if (!item) return;
+  if (cartCount() === 0) return;
 
   // Haptic — подтверждение действия
-  tg?.HapticFeedback?.notificationOccurred('success');
+  try { tg?.HapticFeedback?.notificationOccurred('success'); } catch {}
 
-  // Формируем текст заявки
+  // Собираем позиции заказа
+  const lines = state.cart.map(entry => {
+    const item = state.menuData.items.find(i => i.id === entry.id);
+    return item ? `• ${item.name} × ${entry.qty} = ${item.price * entry.qty} ₽` : '';
+  }).filter(Boolean);
+
+  // Данные о доставке
+  const isDelivery = document.querySelector('.delivery-tab[data-type="delivery"]')?.classList.contains('active');
+  const time    = document.getElementById('input-time')?.value;
+  const address = document.getElementById('input-address')?.value?.trim();
+
+  const deliveryType = isDelivery ? '🚗 Доставка' : '🏠 Самовывоз';
+  let text = `Хочу сделать заказ:\n${lines.join('\n')}\nИтого: ${cartTotal()} ₽\nСпособ получения: ${deliveryType}`;
+  if (time)    text += `\nВремя: ${time}`;
+  if (address) text += `\nАдрес: ${address}`;
+
   const managerUsername = state.menuData.manager;
-  const text = `Хочу записаться на «${item.name}» (${item.price} ₽)`;
-  const encodedText = encodeURIComponent(text);
-  const url = `https://t.me/${managerUsername}?text=${encodedText}`;
+  const url = `https://t.me/${managerUsername}?text=${encodeURIComponent(text)}`;
 
-  // Открываем чат с менеджером внутри Telegram
+  // Открываем чат, очищаем корзину
+  clearCart();
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(url);
   } else {
-    // Fallback для браузера (при разработке)
     window.open(url, '_blank');
   }
 }
@@ -508,47 +711,29 @@ function handleWriteToManager() {
    ═══════════════════════════════════════════════════════ */
 
 function handleMainButton() {
-  // С экрана 2 — переходим на экран 3 (подтверждение)
-  if (state.currentScreen === 'detail') {
-    tg?.HapticFeedback?.impactOccurred('medium');
-    openConfirm();
+  // С любого экрана — назад в каталог
+  if (state.currentScreen === 'detail' || state.currentScreen === 'confirm') {
+    try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+    goBackToCatalog();
   }
 }
 
 function handleBackButton() {
-  tg?.HapticFeedback?.impactOccurred('light');
-
-  if (state.currentScreen === 'detail') {
-    // Назад к каталогу
-    goBackToCatalog();
-  } else if (state.currentScreen === 'confirm') {
-    // Назад к карточке товара
-    goBackToDetail();
-  }
+  try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+  goBackToCatalog();
 }
 
 function goBackToCatalog() {
-  // Скрываем MainButton и BackButton
   if (tg?.MainButton) {
     tg.MainButton.hide();
     tg.MainButton.offClick(handleMainButton);
+    tg.MainButton.offClick(handleWriteToManager);
   }
   if (tg?.BackButton) tg.BackButton.hide();
 
   navigateTo('screen-catalog', 'back');
   state.currentItem = null;
-}
-
-function goBackToDetail() {
-  // Возвращаем MainButton «Записаться»
-  if (tg?.MainButton) {
-    tg.MainButton.offClick(handleWriteToManager);
-    tg.MainButton.setText('Записаться');
-    tg.MainButton.onClick(handleMainButton);
-    tg.MainButton.show();
-  }
-
-  navigateTo('screen-detail', 'back');
+  renderCartBar();
 }
 
 
@@ -642,16 +827,27 @@ function injectBrowserControls() {
   window.navigateTo = function(toId, dir) {
     origNavigate(toId, dir);
     const screen = toId.replace('screen-', '');
+    const cartBar = document.getElementById('cart-bar');
     backBtn.classList.toggle('visible', screen !== 'catalog');
-    mainBtn.classList.toggle('visible', screen === 'detail' || screen === 'confirm');
 
     if (screen === 'detail') {
-      mainBtn.textContent = 'Записаться';
+      mainBtn.textContent = '← В меню';
       mainBtn.onclick = handleMainButton;
+      mainBtn.classList.add('visible');
+      // Cart bar — над синей кнопкой (высота browser-main-btn ~54px + зазор)
+      if (cartBar) cartBar.style.setProperty('--cart-bar-bottom', '70px');
     } else if (screen === 'confirm') {
       mainBtn.textContent = 'Написать в Telegram';
       mainBtn.onclick = handleWriteToManager;
+      mainBtn.classList.add('visible');
+      // На confirm cart bar скрыт через renderCartBar — ничего не делаем
+    } else {
+      mainBtn.classList.remove('visible');
+      if (cartBar) cartBar.style.removeProperty('--cart-bar-bottom');
     }
+
+    // Обновляем состояние cart bar после смены экрана
+    renderCartBar();
   };
 }
 
