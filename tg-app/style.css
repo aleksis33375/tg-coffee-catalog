@@ -1166,7 +1166,7 @@ html, body {
   }
 
   .detail-hero {
-    aspect-ratio: 16 / 7; /* на планшете фото не занимает пол-экрана */
+    aspect-ratio: 16 / 7;
     max-height: 280px;
   }
 
@@ -1180,6 +1180,12 @@ html, body {
 
   .promo-list {
     padding: 16px 24px 40px;
+    scrollbar-width: thin; /* показываем скроллбар на десктопе */
+  }
+
+  /* Баннер акции: ограничиваем высоту — иначе 16:9 на 1200px = 675px высоты */
+  .promo-photos {
+    max-height: 240px;
   }
 }
 
