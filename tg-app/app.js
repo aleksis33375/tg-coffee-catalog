@@ -71,6 +71,9 @@ function initApp() {
     tg.BackButton.hide();
     tg.BackButton.onClick(handleBackButton);
   }
+
+  // Оффер при первом открытии
+  showOfferIfNeeded();
 }
 
 
@@ -476,6 +479,47 @@ function resetCups() {
     localStorage.setItem(CUPS_KEY, '0');
     renderPromos(document.getElementById('catalog-grid'));
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   ОФФЕР ПРИ ПЕРВОМ ОТКРЫТИИ
+   ═══════════════════════════════════════════════════════ */
+
+const OFFER_KEY = 'hotblack_offer_seen';
+const OFFER_URL = 'https://t.me/Prototip_Coffee_house_bot?start=from_app';
+
+function showOfferIfNeeded() {
+  if (localStorage.getItem(OFFER_KEY)) return; // уже видел — не показываем
+
+  const modal = document.getElementById('offer-modal');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+
+  document.getElementById('offer-cta').onclick = () => {
+    localStorage.setItem(OFFER_KEY, '1');
+    dismissOffer();
+    // Открываем бота через Telegram SDK или обычный браузер
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(OFFER_URL);
+    } else {
+      window.open(OFFER_URL, '_blank');
+    }
+  };
+
+  document.getElementById('offer-skip').onclick = () => {
+    localStorage.setItem(OFFER_KEY, '1');
+    dismissOffer();
+  };
+}
+
+function dismissOffer() {
+  const modal = document.getElementById('offer-modal');
+  if (!modal) return;
+  modal.style.transition = 'opacity 0.25s ease';
+  modal.style.opacity = '0';
+  setTimeout(() => modal.classList.add('hidden'), 260);
 }
 
 

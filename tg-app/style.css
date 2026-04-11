@@ -1195,3 +1195,134 @@ html, body {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════
+   ОФФЕР — модальное окно при первом открытии
+   ═══════════════════════════════════════════════════════ */
+
+.offer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: offerFadeIn 0.25s ease;
+}
+
+.offer-overlay.hidden {
+  display: none;
+}
+
+.offer-card {
+  background: var(--tg-bg);
+  border-radius: 24px;
+  padding: 32px 24px 24px;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: offerSlideUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.offer-emoji {
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+
+.offer-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--tg-text);
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+.offer-subtitle {
+  font-size: 15px;
+  color: var(--tg-hint);
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+
+.offer-bullets {
+  list-style: none;
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.offer-bullets li {
+  font-size: 14px;
+  color: var(--tg-text);
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.offer-bullets li::before {
+  content: '•';
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.offer-btn {
+  width: 100%;
+  min-height: 48px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  transition: background var(--transition-ui), transform var(--transition-ui);
+  font-family: var(--font);
+}
+
+.offer-btn:active {
+  background: var(--accent-dark);
+  transform: scale(0.98);
+}
+
+.offer-skip {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--tg-hint);
+  cursor: pointer;
+  padding: 6px 12px;
+  font-family: var(--font);
+  transition: color var(--transition-ui);
+}
+
+.offer-skip:active {
+  color: var(--tg-text);
+}
+
+@keyframes offerFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes offerSlideUp {
+  from { opacity: 0; transform: translateY(32px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)     scale(1);    }
+}

@@ -147,6 +147,22 @@
     <button class="cart-bar-btn" id="cart-bar-btn">Оформить →</button>
   </div>
 
+  <!-- Оффер при первом открытии -->
+  <div id="offer-modal" class="offer-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="offer-title">
+    <div class="offer-card">
+      <div class="offer-emoji">🎁</div>
+      <h2 class="offer-title" id="offer-title">Скидка 10% на первый заказ</h2>
+      <p class="offer-subtitle">Подпишитесь на бота — получите промокод в личное сообщение</p>
+      <ul class="offer-bullets">
+        <li>Напомним о заказе заблаговременно</li>
+        <li>Первыми узнаёте о свободных столах</li>
+        <li>Эксклюзивные акции для подписчиков</li>
+      </ul>
+      <button class="offer-btn" id="offer-cta">Получить скидку 10%</button>
+      <button class="offer-skip" id="offer-skip">Пропустить</button>
+    </div>
+  </div>
+
   <!-- Вся логика — в app.js -->
   <script src="app.js"></script>
 </body>
