@@ -299,6 +299,11 @@ html, body {
   font-weight: 600;
   color: var(--tg-text);
   line-height: 1.3;
+  min-height: 2.6em; /* всегда 2 строки — кнопки на одном уровне */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .card-price {
@@ -307,12 +312,26 @@ html, body {
   color: var(--price-color);
 }
 
-/* Акционная цена — старая зачёркнутая рядом */
+/* Строка: объём — цена */
 .card-price-wrap {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 0;
+  flex-wrap: wrap;
 }
+
+.card-volume {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tg-text);
+}
+
+.card-sep {
+  font-size: 13px;
+  color: var(--tg-hint);
+}
+
+/* Акционная цена — старая зачёркнутая рядом */
 
 .card-price-old {
   font-size: 12px;

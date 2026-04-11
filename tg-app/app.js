@@ -307,13 +307,16 @@ function createCardHTML(item) {
     ? `<img src="${item.photo}" alt="${item.name}" loading="lazy">`
     : `<span>${item.emoji}</span>`;
 
-  // Цена: если есть старая — показываем зачёркнутую
+  // Объём + цена: «300 мл — 220 ₽»
+  const volumePart = item.volume ? `<span class="card-volume">${item.volume}</span><span class="card-sep">&nbsp;–&nbsp;</span>` : '';
   const priceHTML = item.oldPrice
     ? `<div class="card-price-wrap">
-         <span class="card-price">${item.price} ₽</span>
+         ${volumePart}<span class="card-price">${item.price} ₽</span>
          <span class="card-price-old">${item.oldPrice} ₽</span>
        </div>`
-    : `<div class="card-price">${item.price} ₽</div>`;
+    : `<div class="card-price-wrap">
+         ${volumePart}<span class="card-price">${item.price} ₽</span>
+       </div>`;
 
   return `
     <article class="card" data-id="${item.id}" role="listitem" aria-label="${item.name}, ${item.price} ₽">
