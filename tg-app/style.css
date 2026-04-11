@@ -1189,8 +1189,34 @@ html, body {
   }
 }
 
-/* Большие планшеты (900px+) */
+/* Десктоп (900px+) — приложение центрировано как планшет */
 @media (min-width: 900px) {
+  /* Фон за приложением */
+  body {
+    background: #e2e2ea;
+  }
+
+  /* Все экраны — 768px по центру вместо inset: 0 */
+  .screen {
+    left:  calc(50% - 384px);
+    right: auto;
+    width: 768px;
+    box-shadow: 0 8px 48px rgba(0,0,0,0.18);
+  }
+
+  /* Cart-bar вписываем в панель */
+  .cart-bar {
+    left:  calc(50% - 384px + 12px);
+    right: calc(50% - 384px + 12px);
+  }
+
+  /* Оффер-оверлей — тоже только в пределах панели */
+  .offer-overlay {
+    left:  calc(50% - 384px);
+    right: calc(50% - 384px);
+  }
+
+  /* 4 колонки в каталоге */
   .catalog-grid {
     grid-template-columns: repeat(4, 1fr);
   }
