@@ -232,12 +232,12 @@ html, body {
 .card {
   background: var(--tg-section-bg);
   border-radius: var(--radius-card);
-  overflow: hidden;
-  display: block; /* block: грид правильно считает высоту строки = фото + тело */
+  /* overflow: hidden убран — он обрезал кнопку снизу.
+     Скругление верхних углов изображения перенесено на .card-img */
+  display: block;
   cursor: pointer;
   transition: transform var(--transition-ui), box-shadow var(--transition-ui);
   position: relative;
-  /* Тень для глубины */
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
@@ -257,6 +257,8 @@ html, body {
   font-size: 48px;
   overflow: hidden;
   position: relative;
+  /* Скругляем только верхние углы — нижние прямые, к ним примыкает card-body */
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
 
 /* Фото внутри card-img */
