@@ -531,7 +531,7 @@ function dismissOffer() {
    ═══════════════════════════════════════════════════════ */
 
 const ONBOARDING_KEY = 'hotblack_onboarding_seen';
-const BOT_URL = 'https://t.me/Prototip_Coffee_house_bot';
+const BOT_URL = 'https://tg-coffee-catalog.vercel.app/';
 
 function showOnboardingIfNeeded() {
   if (localStorage.getItem(ONBOARDING_KEY)) {
