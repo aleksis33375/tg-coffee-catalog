@@ -2,3 +2,7 @@ node_modules/
 scraper/node_modules/
 scraper/debug.html
 scraper/debug.png
+
+# Секреты — никогда не коммитить
+.env
+.env.local
