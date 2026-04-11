@@ -110,8 +110,29 @@ html, body {
   padding: 14px var(--padding-h) 12px;
   flex-shrink: 0;
   background: var(--tg-bg);
-  /* Мягкая тень вниз чтобы шапка "висела" над контентом */
   box-shadow: 0 1px 0 rgba(0,0,0,0.07);
+}
+
+/* Кнопка «Поделиться» в шапке */
+.share-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--tg-section-bg);
+  color: var(--tg-hint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-ui), color var(--transition-ui), transform var(--transition-ui);
+}
+.share-btn:active {
+  background: var(--accent);
+  color: #fff;
+  transform: scale(0.92);
 }
 
 .logo-icon {
@@ -1220,6 +1241,100 @@ html, body {
   .catalog-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   ОНБОРДИНГ — первый экран с приветствием
+   ═══════════════════════════════════════════════════════ */
+
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001; /* выше оффера */
+  background: var(--tg-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: offerFadeIn 0.3s ease;
+}
+
+.onboarding-overlay.hidden { display: none; }
+
+.onboarding-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: offerSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.onboarding-emoji {
+  font-size: 72px;
+  line-height: 1;
+  margin-bottom: 20px;
+}
+
+.onboarding-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--tg-text);
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+.onboarding-subtitle {
+  font-size: 15px;
+  color: var(--tg-hint);
+  line-height: 1.55;
+  margin-bottom: 28px;
+}
+
+.onboarding-list {
+  list-style: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.onboarding-list li {
+  font-size: 15px;
+  color: var(--tg-text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--tg-section-bg);
+  padding: 12px 16px;
+  border-radius: 14px;
+}
+
+.onboarding-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.onboarding-btn {
+  width: 100%;
+  min-height: 50px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: background var(--transition-ui), transform var(--transition-ui);
+}
+.onboarding-btn:active {
+  background: var(--accent-dark);
+  transform: scale(0.98);
 }
 
 

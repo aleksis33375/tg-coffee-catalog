@@ -72,8 +72,11 @@ function initApp() {
     tg.BackButton.onClick(handleBackButton);
   }
 
-  // Оффер при первом открытии
-  showOfferIfNeeded();
+  // Онбординг → оффер при первом открытии
+  showOnboardingIfNeeded();
+
+  // Кнопка «Поделиться с другом»
+  document.getElementById('share-btn')?.addEventListener('click', handleShare);
 }
 
 
@@ -520,6 +523,82 @@ function dismissOffer() {
   modal.style.transition = 'opacity 0.25s ease';
   modal.style.opacity = '0';
   setTimeout(() => modal.classList.add('hidden'), 260);
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   ОНБОРДИНГ (первое открытие)
+   ═══════════════════════════════════════════════════════ */
+
+const ONBOARDING_KEY = 'hotblack_onboarding_seen';
+const BOT_URL = 'https://t.me/Prototip_Coffee_house_bot';
+
+function showOnboardingIfNeeded() {
+  if (localStorage.getItem(ONBOARDING_KEY)) {
+    // Онбординг уже видел — сразу проверяем оффер
+    showOfferIfNeeded();
+    return;
+  }
+
+  const modal = document.getElementById('onboarding-modal');
+  if (!modal) { showOfferIfNeeded(); return; }
+
+  // Обращение по имени из Telegram
+  const firstName = tg?.initDataUnsafe?.user?.first_name;
+  if (firstName) {
+    const nameEl = document.getElementById('onboarding-name');
+    if (nameEl) nameEl.textContent = firstName;
+  }
+
+  modal.classList.remove('hidden');
+
+  document.getElementById('onboarding-start').onclick = () => {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+    dismissOnboarding();
+  };
+}
+
+function dismissOnboarding() {
+  const modal = document.getElementById('onboarding-modal');
+  if (!modal) { showOfferIfNeeded(); return; }
+  modal.style.transition = 'opacity 0.25s ease';
+  modal.style.opacity = '0';
+  setTimeout(() => {
+    modal.classList.add('hidden');
+    showOfferIfNeeded();
+  }, 260);
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   ПОДЕЛИТЬСЯ С ДРУГОМ
+   ═══════════════════════════════════════════════════════ */
+
+function handleShare() {
+  try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
+
+  const shareText = 'Заказывай кофе прямо в Telegram — без звонков и очередей!';
+
+  // Попытка 1: Web Share API (мобильные браузеры / iOS Safari)
+  if (navigator.share) {
+    navigator.share({ title: 'Hot Black Coffee', text: shareText, url: BOT_URL }).catch(() => {});
+    return;
+  }
+
+  // Попытка 2: Telegram openTelegramLink — ссылка «поделиться» внутри TMA
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(
+      `https://t.me/share/url?url=${encodeURIComponent(BOT_URL)}&text=${encodeURIComponent(shareText)}`
+    );
+    return;
+  }
+
+  // Fallback: скопировать ссылку в буфер обмена
+  navigator.clipboard?.writeText(BOT_URL).then(() => {
+    alert('Ссылка скопирована!');
+  }).catch(() => {
+    alert(BOT_URL);
+  });
 }
 
 

@@ -26,6 +26,13 @@
         <span class="logo-tagline" id="cafe-tagline">Настоящий кофе в твоём городе</span>
         <span class="logo-address">г. Королёв, мкрн. Ясный, ул. Красная</span>
       </div>
+      <button class="share-btn" id="share-btn" title="Поделиться с другом" aria-label="Поделиться">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
     </header>
 
     <!-- Горизонтальные табы категорий -->
@@ -145,6 +152,21 @@
       </div>
     </div>
     <button class="cart-bar-btn" id="cart-bar-btn">Оформить →</button>
+  </div>
+
+  <!-- Онбординг — показывается один раз перед оффером -->
+  <div id="onboarding-modal" class="onboarding-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="onboarding-card">
+      <div class="onboarding-emoji">☕</div>
+      <h2 class="onboarding-title" id="onboarding-title">Привет, <span id="onboarding-name">друг</span>!</h2>
+      <p class="onboarding-subtitle">Hot Black Coffee — живой кофе и десерты прямо в Telegram</p>
+      <ul class="onboarding-list">
+        <li><span class="onboarding-icon">☕</span>Смотри меню и выбирай напитки</li>
+        <li><span class="onboarding-icon">🛒</span>Добавляй в корзину — заказ уйдёт менеджеру</li>
+        <li><span class="onboarding-icon">⚡</span>Без звонков, без очередей, без регистрации</li>
+      </ul>
+      <button class="onboarding-btn" id="onboarding-start">Начать</button>
+    </div>
   </div>
 
   <!-- Оффер при первом открытии -->
