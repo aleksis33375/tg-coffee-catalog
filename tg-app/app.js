@@ -75,8 +75,8 @@ function initApp() {
   // Онбординг → оффер при первом открытии
   showOnboardingIfNeeded();
 
-  // Кнопка «Поделиться с другом»
-  document.getElementById('share-btn')?.addEventListener('click', handleShare);
+  // Полоса «Поделиться с другом»
+  document.getElementById('share-strip')?.addEventListener('click', handleShare);
 }
 
 
@@ -579,17 +579,17 @@ function handleShare() {
 
   const shareText = 'Заказывай кофе прямо в Telegram — без звонков и очередей!';
 
-  // Попытка 1: Web Share API (мобильные браузеры / iOS Safari)
-  if (navigator.share) {
-    navigator.share({ title: 'Hot Black Coffee', text: shareText, url: BOT_URL }).catch(() => {});
-    return;
-  }
-
-  // Попытка 2: Telegram openTelegramLink — ссылка «поделиться» внутри TMA
+  // Приоритет 1: внутри Telegram Mini App — открываем диалог выбора контакта
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(
       `https://t.me/share/url?url=${encodeURIComponent(BOT_URL)}&text=${encodeURIComponent(shareText)}`
     );
+    return;
+  }
+
+  // Приоритет 2: браузер — нативный Web Share API
+  if (navigator.share) {
+    navigator.share({ title: 'Hot Black Coffee', text: shareText, url: BOT_URL }).catch(() => {});
     return;
   }
 
