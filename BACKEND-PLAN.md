@@ -1,16 +1,19 @@
 # BACKEND-PLAN.md
 # Бэкенд для Telegram Mini App кофейни — план разработки
 
-> Версия: 1.2 | Апрель 2026  
-> Основа: brief.md + research.md + ответы на архитектурные вопросы
+> Версия: 2.0 | Апрель 2026
+> Стек: Supabase + Vercel (бесплатный план)
+> Основа: brief.md + архитектурное решение v2
 
 ---
 
 ## Концепция
 
-Владелец кофейни форкает репозиторий, деплоит на Vercel/Railway одной командой.  
-Первый запуск — настройка через adminку: название, логотип, меню, токен бота.  
+Владелец кофейни форкает репозиторий, деплоит на Vercel одной командой, создаёт проект в Supabase.
+Первый запуск — настройка через adminку: название, логотип, меню, токен бота.
 Дальше управляет сам: меняет цены, добавляет товары, смотрит заказы, делает рассылки.
+
+**Всё бесплатно:** Vercel Free + Supabase Free tier.
 
 ---
 
@@ -18,47 +21,67 @@
 
 | Слой | Решение | Почему |
 |---|---|---|
-| Runtime | Node.js + Express | Уже используется в setup-bot.js, знакомый стек |
-| База данных | SQLite (better-sqlite3) | Файловая БД, нет отдельного сервера, легко деплоить |
-| Меню | JSON-файл (menu.json) | Как сейчас — API только читает и перезаписывает файл |
-| Загрузка файлов | Multer | Простая загрузка изображений на сервер |
+| Runtime (API) | Vercel Serverless Functions | Бесплатно, автодеплой из GitHub, нет постоянного сервера |
+| База данных | Supabase (PostgreSQL) | 500 МБ бесплатно, мощнее SQLite, hosted |
+| Хранилище файлов | Supabase Storage | 1 ГБ бесплатно, хранит фото меню и логотип |
+| Realtime (заказы) | Supabase Realtime | Замена SSE — WebSocket-подписка на таблицу orders |
 | Авторизация adminки | JWT + пароль из .env | Токен живёт 7 дней — владелец вводит пароль раз в неделю |
-| Авторизация бариста | JWT + PIN из .env | Токен живёт 24 часа — бариста вводит PIN раз в день при начале смены |
-| Telegram Bot | node-telegram-bot-api | Webhook, отправка уведомлений, рассылки |
-| Хостинг Mini App | Vercel | Статика без бэкенда — бесплатно, быстро |
-| Хостинг бэкенда, adminки и баристы | Railway | SQLite и файлы живут постоянно; Express раздаёт /admin/ и /barista/ как статику |
+| Авторизация бариста | JWT + PIN из БД | Токен живёт 24 часа — бариста вводит PIN раз в день |
+| Telegram Bot | node-telegram-bot-api | Webhook → Vercel Function, отправка уведомлений, рассылки |
+| Cron-задачи | Vercel Cron Jobs | День рождения, неактивные клиенты, рассылки по расписанию |
+| Хостинг Mini App | Vercel | Статика — бесплатно, быстро |
+| Хостинг adminки и баристы | Vercel | Та же статика, раздаётся как /admin/ и /barista/ |
 
 ---
 
 ## Что хранится где
 
-### menu.json — добавлено поле `available`
-Adminка читает и перезаписывает файл через API. К каждой позиции добавлено поле:
-```json
-{ "available": true }
-```
-Если `available: false` — позиция скрыта в Mini App, но не удалена из меню. Владелец включает обратно одной кнопкой.
+### Supabase PostgreSQL — все таблицы
 
-### SQLite — три таблицы
+**Меню перенесено из menu.json в БД** — Vercel не позволяет записывать файлы после деплоя.
+
+#### `menu_items` — позиции меню
+```sql
+id          SERIAL PRIMARY KEY
+category    TEXT NOT NULL            -- 'Кофе' | 'Чай' | 'Десерты' | 'Акции'
+name        TEXT NOT NULL
+price       INTEGER NOT NULL         -- в рублях
+volume      TEXT                     -- '300 мл' | '200 гр'
+description TEXT
+photo_url   TEXT                     -- URL из Supabase Storage
+badge       TEXT                     -- 'хит' | 'новинка' | null
+emoji       TEXT
+gradient    TEXT                     -- JSON: ["#5C3A21", "#C8813A"]
+available   BOOLEAN DEFAULT true     -- false = скрыто в Mini App, но не удалено
+sort_order  INTEGER DEFAULT 0        -- порядок отображения
+created_at  TIMESTAMPTZ DEFAULT NOW()
+```
+
+#### `settings` — настройки кофейни
+```sql
+key   TEXT PRIMARY KEY               -- 'cafe_name' | 'tagline' | 'address' | 'logo_url' | 'bot_token' | 'webhook_secret' | 'manager_tg_id' | ...
+value TEXT
+```
+Всё в одной таблице ключ-значение. Adminка читает и пишет через `/api/admin/settings`.
 
 #### `customers` — покупатели
 ```sql
-id            INTEGER PRIMARY KEY
+id            SERIAL PRIMARY KEY
 tg_id         TEXT UNIQUE NOT NULL   -- Telegram user_id
-first_name    TEXT                   -- имя из Telegram
+first_name    TEXT
 username      TEXT                   -- @username (может быть null)
-birthday      TEXT                   -- дата рождения 'MM-DD', вводится баристой с паспорта клиента
-referral_code TEXT UNIQUE            -- уникальный код клиента для реферальной ссылки
-referred_by   TEXT                   -- tg_id того, кто пригласил (null если пришёл сам)
-source        TEXT DEFAULT 'direct'  -- откуда пришёл: 'direct' | 'qr' | 'yandex' | '2gis' | 'vk' | 'site' | 'referral'
-status        TEXT DEFAULT 'visitor' -- 'visitor' — зашёл но не купил, 'buyer' — сделал хотя бы один заказ
-vip           INTEGER DEFAULT 0      -- 1 — VIP-клиент, помечает вручную владелец
-created_at    DATETIME DEFAULT NOW
-last_seen     DATETIME               -- дата последнего визита (обновляется при каждом открытии)
+birthday      TEXT                   -- дата рождения 'MM-DD', вводится баристой
+referral_code TEXT UNIQUE            -- уникальный код для реферальной ссылки
+referred_by   TEXT                   -- tg_id пригласившего (null если пришёл сам)
+source        TEXT DEFAULT 'direct'  -- 'direct' | 'qr' | 'yandex' | '2gis' | 'vk' | 'site' | 'referral'
+status        TEXT DEFAULT 'visitor' -- 'visitor' — зашёл, 'buyer' — купил хотя бы раз
+vip           BOOLEAN DEFAULT false  -- VIP-клиент, помечает владелец
+created_at    TIMESTAMPTZ DEFAULT NOW()
+last_seen     TIMESTAMPTZ
 ```
 
-**Как фиксируется источник:**  
-Ссылки на каждую площадку содержат UTM-параметр:
+**Как фиксируется источник:**
+Ссылки содержат UTM-параметр:
 ```
 https://tg-coffee-catalog.vercel.app/?utm_source=yandex
 https://tg-coffee-catalog.vercel.app/?utm_source=2gis
@@ -66,162 +89,202 @@ https://tg-coffee-catalog.vercel.app/?utm_source=vk
 https://tg-coffee-catalog.vercel.app/?utm_source=qr
 https://tg-coffee-catalog.vercel.app/?utm_source=site
 ```
-При первом открытии app.js читает `utm_source` из URL → передаёт в `POST /api/customers`.  
-Если параметра нет — `source = 'direct'`. Если пришёл по реферальной ссылке — `source = 'referral'`.
+При первом открытии app.js читает `utm_source` → передаёт в `POST /api/customers`.
+Если параметра нет — `source = 'direct'`. Реферальная ссылка — `source = 'referral'`.
 
-**Как фиксируется статус visitor / buyer:**  
-- При первом открытии Mini App → `POST /api/customers` → запись создаётся со `status = 'visitor'`  
-- Когда клиент оформляет заказ → `POST /api/orders` → статус автоматически меняется на `'buyer'`  
+**Как фиксируется статус visitor / buyer:**
+- Первое открытие → `POST /api/customers` → `status = 'visitor'`
+- Оформил заказ → `POST /api/orders` → `status = 'buyer'`
 - Обратно в visitor не возвращается.
 
 #### `orders` — заказы
 ```sql
-id            INTEGER PRIMARY KEY
-customer_tg_id TEXT               -- ссылка на customers.tg_id
-items         TEXT               -- JSON: [{id, name, qty, price}]
-total         INTEGER            -- сумма в рублях
-delivery_type TEXT               -- 'pickup' | 'delivery'
-delivery_time TEXT               -- время самовывоза или адрес
-comment       TEXT               -- комментарий к заказу
-status        TEXT DEFAULT 'new' -- 'new' | 'preparing' | 'ready' | 'done'
-payment       TEXT               -- 'card' | 'cash' | null (null = оплата через Mini App, способ не фиксировался)
-created_at    DATETIME DEFAULT NOW
-notified      INTEGER DEFAULT 0  -- 1 если клиент уже получил уведомление
+id              SERIAL PRIMARY KEY
+customer_tg_id  TEXT               -- ссылка на customers.tg_id
+items           JSONB              -- [{id, name, qty, price}]
+total           INTEGER            -- сумма в рублях
+delivery_type   TEXT               -- 'pickup' | 'delivery'
+delivery_time   TEXT               -- время самовывоза
+comment         TEXT
+status          TEXT DEFAULT 'new' -- 'new' | 'preparing' | 'ready' | 'done'
+payment         TEXT               -- 'card' | 'cash' | null
+created_at      TIMESTAMPTZ DEFAULT NOW()
+notified        BOOLEAN DEFAULT false
 ```
 
-#### `promos` — акции (создаёт владелец)
+#### `promos` — акции
 ```sql
-id          INTEGER PRIMARY KEY
-name        TEXT NOT NULL          -- «Каждая 6-я кружка бесплатно»
-type        TEXT NOT NULL          -- 'cups_loyalty' | 'discount_first' | 'discount_percent'
-config      TEXT                   -- JSON с параметрами акции, зависит от типа:
-                                   --   cups_loyalty:     { "totalCups": 6, "items": ["Капучино"] }
-                                   --   discount_first:   { "percent": 10 }
-                                   --   discount_percent: { "percent": 15, "minTotal": 500 }
-active      INTEGER DEFAULT 1      -- 1 — акция включена, 0 — выключена
-created_at  DATETIME DEFAULT NOW
+id          SERIAL PRIMARY KEY
+name        TEXT NOT NULL
+type        TEXT NOT NULL          -- 'cups_loyalty' | 'discount_first' | 'discount_percent' | 'buy_n_get_one' | 'birthday_discount' | 'referral'
+config      JSONB                  -- параметры акции зависят от типа
+active      BOOLEAN DEFAULT true
+created_at  TIMESTAMPTZ DEFAULT NOW()
 ```
 
-**Все типы акций и их config:**
+**Типы акций:**
 
-| Тип | Название | config (пример) |
+| Тип | Название | config |
 |---|---|---|
-| `cups_loyalty` | Каждая N-я кружка бесплатно | `{ "totalCups": 6, "items": ["Капучино", "Латте"] }` |
+| `cups_loyalty` | Каждая N-я кружка бесплатно | `{ "totalCups": 6, "items": ["Капучино"] }` |
 | `discount_first` | Скидка на первый заказ | `{ "percent": 10 }` |
 | `discount_percent` | Скидка % на заказ | `{ "percent": 15, "minTotal": 500 }` |
 | `buy_n_get_one` | Купи N — получи следующий бесплатно | `{ "buyCount": 2, "items": ["Капучино"] }` |
 | `birthday_discount` | Скидка в день рождения | `{ "percent": 20, "daysWindow": 7 }` |
 | `referral` | Приведи друга — получи бонус | `{ "bonusType": "cups", "bonusValue": 1 }` |
 
-#### `order_promos` — применённые акции (отмечает бариста)
+#### `order_promos` — применённые акции
 ```sql
-id              INTEGER PRIMARY KEY
-order_id        INTEGER             -- к какому заказу привязано (NULL если клиент пришёл без заказа из Mini App)
-promo_id        INTEGER NOT NULL    -- какая акция
-customer_tg_id  TEXT NOT NULL       -- кому начислено
-event           TEXT NOT NULL       -- 'cup_earned' | 'free_cup_given' | 'discount_applied'
-value           INTEGER             -- числовое значение: +1 кружка, -6 кружек, скидка 10% и т.д.
-marked_by       TEXT                -- 'barista' | 'system' | 'admin'
-created_at      DATETIME DEFAULT NOW
+id              SERIAL PRIMARY KEY
+order_id        INTEGER            -- к какому заказу (NULL если клиент без заказа из Mini App)
+promo_id        INTEGER NOT NULL
+customer_tg_id  TEXT NOT NULL
+event           TEXT NOT NULL      -- 'cup_earned' | 'free_cup_given' | 'discount_applied'
+value           INTEGER
+marked_by       TEXT               -- 'barista' | 'system' | 'admin'
+created_at      TIMESTAMPTZ DEFAULT NOW()
 ```
 
-#### `customer_promo_progress` — прогресс клиента по каждой акции
+#### `customer_promo_progress` — прогресс по акциям
 ```sql
 customer_tg_id  TEXT NOT NULL
 promo_id        INTEGER NOT NULL
-progress        INTEGER DEFAULT 0  -- например, сколько кружек накоплено
-updated_at      DATETIME
+progress        INTEGER DEFAULT 0
+updated_at      TIMESTAMPTZ
 PRIMARY KEY (customer_tg_id, promo_id)
 ```
 
 #### `broadcasts` — история рассылок
 ```sql
-id         INTEGER PRIMARY KEY
-text       TEXT NOT NULL          -- текст сообщения
-segment    TEXT DEFAULT 'all'     -- 'all' | 'buyers' | 'visitors' | 'inactive' | 'vip' | source-фильтр
-sent_to    INTEGER                -- сколько клиентов получили
-scheduled_at DATETIME            -- NULL = отправить сразу, дата = отложенная рассылка
-sent        INTEGER DEFAULT 0    -- 0 — ещё не отправлена, 1 — отправлена
-created_at DATETIME DEFAULT NOW
+id           SERIAL PRIMARY KEY
+text         TEXT NOT NULL
+segment      TEXT DEFAULT 'all'  -- 'all' | 'buyers' | 'visitors' | 'inactive' | 'vip'
+sent_to      INTEGER
+scheduled_at TIMESTAMPTZ         -- NULL = сразу, дата = отложенная
+sent         BOOLEAN DEFAULT false
+created_at   TIMESTAMPTZ DEFAULT NOW()
 ```
 
-#### `baristas` — сотрудники (исправление: один PIN → личный PIN каждого)
+#### `baristas` — сотрудники
 ```sql
-id         INTEGER PRIMARY KEY
-name       TEXT NOT NULL          -- имя бариста: «Маша», «Петя»
-pin        TEXT NOT NULL          -- личный 4-значный PIN, хранится в виде хеша
-active     INTEGER DEFAULT 1      -- 1 — работает, 0 — уволен (доступ закрыт без удаления)
-created_at DATETIME DEFAULT NOW
+id         SERIAL PRIMARY KEY
+name       TEXT NOT NULL
+pin        TEXT NOT NULL          -- 4-значный PIN, хранится в виде хеша
+active     BOOLEAN DEFAULT true   -- false = уволен, доступ закрыт
+created_at TIMESTAMPTZ DEFAULT NOW()
 ```
-Владелец управляет списком баристов в Настройках: добавить, переименовать, деактивировать.
-Каждый бариста входит своим PIN — в `barista_log` фиксируется конкретный `barista_id`.
+
+#### `shifts` — смены баристов
+```sql
+id            SERIAL PRIMARY KEY
+barista_id    INTEGER NOT NULL
+opened_at     TIMESTAMPTZ NOT NULL
+closed_at     TIMESTAMPTZ
+orders_count  INTEGER DEFAULT 0
+total_cash    INTEGER DEFAULT 0   -- руб.
+total_card    INTEGER DEFAULT 0   -- руб.
+```
 
 #### `barista_log` — лог действий бариста
 ```sql
-id              INTEGER PRIMARY KEY
-barista_id      INTEGER NOT NULL -- ссылка на baristas.id — точно известно кто сделал действие
-barista_action  TEXT NOT NULL    -- 'cup_marked' | 'discount_applied' | 'status_changed' | 'birthday_set' | 'menu_edited' | 'shift_closed'
-order_id        INTEGER          -- к какому заказу (null если не привязано к заказу)
-customer_tg_id  TEXT             -- кому (null если действие не по клиенту)
-details         TEXT             -- JSON: что именно сделано (old/new значения, название позиции и т.д.)
-created_at      DATETIME DEFAULT NOW
-```
-
-#### `shifts` — смены баристов (исправление: закрытие смены)
-```sql
-id            INTEGER PRIMARY KEY
-barista_id    INTEGER NOT NULL    -- ссылка на baristas.id
-opened_at     DATETIME NOT NULL   -- время входа по PIN
-closed_at     DATETIME            -- время нажатия «Закрыть смену» (null если смена ещё открыта)
-orders_count  INTEGER DEFAULT 0   -- сколько заказов принято за смену
-total_cash    INTEGER DEFAULT 0   -- выручка наличными за смену (руб.)
-total_card    INTEGER DEFAULT 0   -- выручка картой за смену (руб.)
+id              SERIAL PRIMARY KEY
+barista_id      INTEGER NOT NULL
+barista_action  TEXT NOT NULL      -- 'cup_marked' | 'discount_applied' | 'status_changed' | 'birthday_set' | 'menu_edited' | 'shift_closed'
+order_id        INTEGER
+customer_tg_id  TEXT
+details         JSONB
+created_at      TIMESTAMPTZ DEFAULT NOW()
 ```
 
 #### `menu_history` — история изменений меню
 ```sql
-id          INTEGER PRIMARY KEY
-item_id     INTEGER NOT NULL    -- id позиции в menu.json
-action      TEXT NOT NULL       -- 'price_changed' | 'name_changed' | 'added' | 'deleted' | 'availability_changed'
-old_value   TEXT                -- JSON: что было
-new_value   TEXT                -- JSON: что стало
-changed_by  TEXT                -- 'admin' | 'barista'
-created_at  DATETIME DEFAULT NOW
+id          SERIAL PRIMARY KEY
+item_id     INTEGER NOT NULL
+action      TEXT NOT NULL          -- 'price_changed' | 'name_changed' | 'added' | 'deleted' | 'availability_changed'
+old_value   JSONB
+new_value   JSONB
+changed_by  TEXT                   -- 'admin' | 'barista'
+created_at  TIMESTAMPTZ DEFAULT NOW()
 ```
 
-### .env — секреты и настройки
+### Supabase Storage — файлы
+
+Два bucket'а:
+- `menu-images` — фото позиций меню (публичный)
+- `cafe-assets` — логотип кофейни (публичный)
+
+URL файла: `https://<project>.supabase.co/storage/v1/object/public/menu-images/капучино.jpg`
+Этот URL сохраняется в `menu_items.photo_url`.
+
+### .env.local — секреты
 ```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...        -- service_role ключ (полный доступ, только на сервере)
+SUPABASE_ANON_KEY=eyJ...           -- anon ключ (для клиента, публичный)
 ADMIN_PASSWORD=ваш_пароль
-BARISTA_PIN=1234                  -- 4-значный PIN для входа бариста
 JWT_SECRET=случайная_строка_32_символа
-JWT_EXPIRES_ADMIN=7d                  -- токен владельца живёт 7 дней
-JWT_EXPIRES_BARISTA=24h               -- токен бариста живёт 24 часа (сбрасывается каждую смену)
-BOT_TOKEN=                        -- заполняется через adminку, пишется сюда
-WEBHOOK_SECRET=случайная_строка   -- защита webhook от посторонних запросов
+JWT_EXPIRES_ADMIN=7d
+JWT_EXPIRES_BARISTA=24h
+BOT_TOKEN=                         -- заполняется через adminку
+WEBHOOK_SECRET=случайная_строка
 ```
 
-### settings.json — настройки прав бариста
-Файл создаётся при первом запуске, редактируется через adminку владельца.
+### auto-messages.json → таблица `settings`
+Вместо отдельного файла settings.json — записи в таблице `settings`:
+```
+auto_welcome_enabled = 'true'
+auto_welcome_text    = 'Привет! Добро пожаловать в Hot Black Coffee ☕'
+auto_birthday_enabled = 'true'
+auto_birthday_text   = '🎂 С днём рождения! Скидка 20%...'
+auto_inactive_enabled = 'true'
+auto_inactive_days   = '14'
+auto_inactive_text   = 'Давно не заходил! Есть новинки в меню ☕'
+barista_can_edit_menu = 'false'
+setup_complete        = 'false'
+```
+
+---
+
+## Как работает Realtime (замена SSE)
+
+Вместо SSE-потока (который требует постоянный сервер) — Supabase Realtime:
+
+```js
+// barista.js (клиент)
+import { createClient } from '@supabase/supabase-js'
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+supabase
+  .channel('orders')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+    // новый заказ — добавить в список, воспроизвести звук
+    showNewOrder(payload.new)
+    playBeep()
+  })
+  .subscribe()
+```
+
+**Преимущества перед SSE:**
+- WebSocket через Supabase — автопереподключение встроено
+- Не нужен постоянный сервер
+- Работает даже при Vercel serverless (нет персистентного соединения с сервером)
+
+---
+
+## Как работают Cron-задачи (замена Express cron)
+
+В `vercel.json` объявляются расписания:
 ```json
 {
-  "barista_can_edit_menu": false,
-  "auto_messages": {
-    "welcome": {
-      "enabled": true,
-      "text": "Привет! Добро пожаловать в Hot Black Coffee ☕ Смотри меню и делай заказ прямо здесь."
-    },
-    "birthday": {
-      "enabled": true,
-      "text": "🎂 С днём рождения! Сегодня скидка 20% — покажи это сообщение баристе."
-    },
-    "inactive": {
-      "enabled": true,
-      "days": 14,
-      "text": "Давно не заходил! Загляни к нам — есть новинки в меню ☕"
-    }
-  }
+  "crons": [
+    { "path": "/api/cron/birthday", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/inactive", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/broadcasts", "schedule": "*/5 * * * *" }
+  ]
 }
 ```
+
+Vercel вызывает эти URL по расписанию — каждый URL это обычная serverless function.
 
 ---
 
@@ -231,47 +294,48 @@ WEBHOOK_SECRET=случайная_строка   -- защита webhook от п
 
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/menu` | Возвращает всё меню и настройки кофейни (без токена бота) |
-| POST | `/api/orders` | Принимает заказ, сохраняет в БД, отправляет в Telegram менеджеру |
-| GET | `/api/customers/:tg_id` | Возвращает данные клиента (имя, кружки) |
-| POST | `/api/customers` | Регистрирует клиента при первом заходе в приложение |
-| GET | `/api/customers/:tg_id/referral` | Возвращает реферальную ссылку клиента для кнопки «Поделиться» |
+| GET | `/api/menu` | Возвращает позиции из таблицы menu_items (только available=true) |
+| POST | `/api/orders` | Принимает заказ, сохраняет в БД, уведомляет через бота |
+| GET | `/api/customers/:tg_id` | Данные клиента (имя, прогресс по акциям) |
+| POST | `/api/customers` | Регистрирует клиента при первом заходе |
+| GET | `/api/customers/:tg_id/referral` | Реферальная ссылка клиента |
 
 ### Интерфейс бариста (требуют JWT с ролью `barista`)
 
 **Авторизация**
 | Метод | URL | Что делает |
 |---|---|---|
-| POST | `/api/barista/login` | Проверяет личный PIN бариста, возвращает JWT с barista_id и именем |
+| POST | `/api/barista/login` | Проверяет личный PIN, возвращает JWT с barista_id и именем |
 
 **Смена**
 | Метод | URL | Что делает |
 |---|---|---|
-| POST | `/api/barista/shift/open` | Открыть смену — создаёт запись в shifts при входе по PIN |
+| POST | `/api/barista/shift/open` | Открыть смену |
 | GET | `/api/barista/shift/summary` | Итог текущей смены: заказов, наличными, картой |
-| POST | `/api/barista/shift/close` | Закрыть смену — фиксирует closed_at и финальные цифры |
+| POST | `/api/barista/shift/close` | Закрыть смену — фиксирует closed_at и итоги |
 
 **Заказы**
 | Метод | URL | Что делает |
 |---|---|---|
 | GET | `/api/barista/orders` | Активные заказы (статус new / preparing) |
-| GET | `/api/barista/orders/stream` | SSE-поток — бариста подключается один раз, сервер мгновенно присылает событие при каждом новом заказе (как сообщение в Telegram) |
-| PUT | `/api/barista/orders/:id/status` | Меняет статус (new→preparing→ready), при ready — уведомляет клиента |
+| PUT | `/api/barista/orders/:id/status` | Меняет статус, при ready — уведомляет клиента |
+
+> Realtime-уведомления о новых заказах — через Supabase Realtime на клиенте, без отдельного API.
 
 **Акции**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/barista/orders/:id/promos` | Список активных акций применимых к этому заказу |
-| POST | `/api/barista/orders/:id/promos/:promo_id` | Применить акцию к заказу — сохраняет в order_promos, обновляет прогресс клиента |
-| GET | `/api/barista/customers/search` | Поиск клиента по @username — возвращает прогресс по всем акциям |
-| POST | `/api/barista/customers/:tg_id/promos/:promo_id` | Применить акцию напрямую к клиенту (если заказ не найден) |
-| PUT | `/api/barista/customers/:tg_id/birthday` | Бариста вводит или исправляет дату рождения клиента — работает для первичного ввода и для коррекции неверной даты |
+| GET | `/api/barista/orders/:id/promos` | Активные акции применимые к заказу |
+| POST | `/api/barista/orders/:id/promos/:promo_id` | Применить акцию к заказу |
+| GET | `/api/barista/customers/search` | Поиск клиента по @username |
+| POST | `/api/barista/customers/:tg_id/promos/:promo_id` | Применить акцию напрямую к клиенту |
+| PUT | `/api/barista/customers/:tg_id/birthday` | Ввести / исправить дату рождения |
 
 **Меню (только если владелец разрешил)**
 | Метод | URL | Что делает |
 |---|---|---|
-| PUT | `/api/barista/menu/items/:id` | Редактировать поля позиции (цена, название, фото, описание). Возвращает 403 если `barista_can_edit_menu: false` |
-| POST | `/api/barista/upload/image` | Загрузить фото товара. Возвращает 403 если редактирование меню закрыто |
+| PUT | `/api/barista/menu/items/:id` | Редактировать позицию. 403 если barista_can_edit_menu=false |
+| POST | `/api/barista/upload/image` | Загрузить фото в Supabase Storage. 403 если закрыто |
 
 ---
 
@@ -285,105 +349,107 @@ WEBHOOK_SECRET=случайная_строка   -- защита webhook от п
 **Настройки кофейни**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/settings` | Название, слоган, адрес, цвет акцента, логотип, токен бота |
-| PUT | `/api/admin/settings` | Сохраняет настройки, при смене токена — перерегистрирует webhook |
-| POST | `/api/admin/upload/logo` | Загружает логотип кофейни |
+| GET | `/api/admin/settings` | Название, слоган, адрес, логотип, токен бота |
+| PUT | `/api/admin/settings` | Сохраняет в таблицу settings, при смене токена — перерегистрирует webhook |
+| POST | `/api/admin/upload/logo` | Загружает логотип в Supabase Storage |
 
 **Меню**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/menu` | Полное меню для редактирования |
-| PUT | `/api/admin/menu` | Сохраняет весь menu.json целиком |
-| POST | `/api/admin/menu/items` | Добавляет новую позицию |
-| PUT | `/api/admin/menu/items/:id` | Редактирует позицию (цена, название, описание) |
-| DELETE | `/api/admin/menu/items/:id` | Удаляет позицию |
-| POST | `/api/admin/upload/image` | Загружает фото товара, возвращает путь |
+| GET | `/api/admin/menu` | Полное меню из menu_items для редактирования |
+| POST | `/api/admin/menu/items` | Добавить позицию |
+| PUT | `/api/admin/menu/items/:id` | Редактировать позицию |
+| DELETE | `/api/admin/menu/items/:id` | Удалить позицию |
+| PUT | `/api/admin/menu/items/:id/availability` | Скрыть / показать позицию |
+| PUT | `/api/admin/menu/items/:id/sort` | Изменить порядок |
+| GET | `/api/admin/menu/history` | История изменений меню |
+| POST | `/api/admin/upload/image` | Загрузить фото в Supabase Storage |
 
 **Заказы**
 | Метод | URL | Что делает |
 |---|---|---|
 | GET | `/api/admin/orders` | Список заказов (фильтр: дата, статус) |
-| PUT | `/api/admin/orders/:id/status` | Меняет статус, при 'ready' — уведомляет клиента в Telegram |
-| PUT | `/api/admin/orders/:id/cancel` | Отмена заказа с причиной — сохраняет в barista_log, уведомляет клиента |
-| GET | `/api/admin/orders/stats` | Выручка за сегодня / неделю / месяц, кол-во заказов |
+| PUT | `/api/admin/orders/:id/status` | Меняет статус, при ready — уведомляет клиента |
+| PUT | `/api/admin/orders/:id/cancel` | Отмена с причиной |
+| GET | `/api/admin/orders/stats` | Выручка за сегодня / неделю / месяц |
 
 **Аналитика**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/analytics/top-items` | Топ позиций по количеству продаж за период (`?period=week`) |
+| GET | `/api/admin/analytics/top-items` | Топ позиций по продажам за период |
 | GET | `/api/admin/analytics/avg-check` | Средний чек за период |
-| GET | `/api/admin/analytics/peak-hours` | Количество заказов по часам — видно пиковое время |
-| GET | `/api/admin/analytics/compare` | Сравнение двух периодов: выручка, заказы, средний чек (`?period=week&prev=1`) |
-| GET | `/api/admin/analytics/conversion` | Конверсия visitor → buyer: сколько зашедших стали покупателями |
-| GET | `/api/admin/analytics/sources` | По каждому источнику (QR, Яндекс, ВКонтакте): кол-во посетителей, покупателей, выручка |
-| GET | `/api/admin/analytics/categories` | Выручка и кол-во заказов по категориям (Кофе / Чай / Десерты) |
+| GET | `/api/admin/analytics/peak-hours` | Заказы по часам — пиковое время |
+| GET | `/api/admin/analytics/compare` | Сравнение двух периодов |
+| GET | `/api/admin/analytics/conversion` | Конверсия visitor → buyer |
+| GET | `/api/admin/analytics/sources` | По источникам: посетители, покупатели, выручка |
+| GET | `/api/admin/analytics/categories` | Выручка по категориям |
 
 **Клиенты**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/customers` | Список клиентов с фильтрами: `?status=buyer`, `?status=visitor`, `?source=qr`, `?vip=1` |
-| GET | `/api/admin/customers/:tg_id` | Профиль клиента: имя, источник, статус, VIP, вся история заказов, прогресс по акциям |
-| PUT | `/api/admin/customers/:tg_id/cups` | Ручная корректировка кружек (если нужно исправить) |
-| PUT | `/api/admin/customers/:tg_id/vip` | Поставить / снять метку VIP |
-| GET | `/api/admin/customers/export` | Выгрузка базы клиентов в CSV (имя, username, источник, статус, дата регистрации, кол-во заказов) |
+| GET | `/api/admin/customers` | Список с фильтрами: status, source, vip |
+| GET | `/api/admin/customers/:tg_id` | Профиль: история заказов, прогресс по акциям |
+| PUT | `/api/admin/customers/:tg_id/cups` | Ручная корректировка кружек |
+| PUT | `/api/admin/customers/:tg_id/vip` | Поставить / снять VIP |
+| GET | `/api/admin/customers/export` | Выгрузка в CSV |
 
 **Рассылки**
 | Метод | URL | Что делает |
 |---|---|---|
-| POST | `/api/admin/broadcast` | Рассылка по сегменту: `{ text, segment: 'all'\|'buyers'\|'visitors'\|'inactive'\|'vip', scheduled_at? }` |
-| GET | `/api/admin/broadcast/scheduled` | Список запланированных (ещё не отправленных) рассылок |
-| DELETE | `/api/admin/broadcast/scheduled/:id` | Отмена запланированной рассылки |
-| GET | `/api/admin/broadcast/history` | История всех рассылок с результатами |
+| POST | `/api/admin/broadcast` | Рассылка по сегменту (сразу или по расписанию) |
+| GET | `/api/admin/broadcast/scheduled` | Запланированные рассылки |
+| DELETE | `/api/admin/broadcast/scheduled/:id` | Отмена запланированной |
+| GET | `/api/admin/broadcast/history` | История рассылок |
 
 **Автосообщения**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/auto-messages` | Текущие настройки автосообщений (welcome, birthday, inactive) |
-| PUT | `/api/admin/auto-messages` | Включить/выключить и изменить текст каждого автосообщения |
+| GET | `/api/admin/auto-messages` | Текущие настройки (welcome, birthday, inactive) |
+| PUT | `/api/admin/auto-messages` | Включить/выключить, изменить текст |
 
 **Акции**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/promos` | Список всех акций |
-| POST | `/api/admin/promos` | Создать новую акцию |
-| PUT | `/api/admin/promos/:id` | Редактировать акцию (название, параметры) |
-| PUT | `/api/admin/promos/:id/toggle` | Включить / выключить акцию |
-| DELETE | `/api/admin/promos/:id` | Удалить акцию |
-| GET | `/api/admin/promos/:id/stats` | Статистика по акции: сколько раз применена, кем |
+| GET | `/api/admin/promos` | Список акций |
+| POST | `/api/admin/promos` | Создать акцию |
+| PUT | `/api/admin/promos/:id` | Редактировать |
+| PUT | `/api/admin/promos/:id/toggle` | Включить / выключить |
+| DELETE | `/api/admin/promos/:id` | Удалить |
+| GET | `/api/admin/promos/:id/stats` | Статистика применений |
 
-**Меню — расширенное управление**
+**Сотрудники**
 | Метод | URL | Что делает |
 |---|---|---|
-| PUT | `/api/admin/menu/items/:id/availability` | Включить / временно скрыть позицию (`{ available: false }`) без удаления |
-| PUT | `/api/admin/menu/items/:id/sort` | Изменить порядок позиции в меню (`{ sortOrder: 3 }`) |
-| GET | `/api/admin/menu/history` | История изменений меню: кто, когда, что поменял |
-
-**Сотрудники (баристы)**
-| Метод | URL | Что делает |
-|---|---|---|
-| GET | `/api/admin/baristas` | Список всех баристов: имя, статус (работает / уволен) |
-| POST | `/api/admin/baristas` | Добавить нового бариста: имя + PIN |
-| PUT | `/api/admin/baristas/:id/pin` | Сменить личный PIN конкретного бариста |
-| PUT | `/api/admin/baristas/:id/active` | Активировать / деактивировать доступ бариста |
-| GET | `/api/admin/baristas/:id/shifts` | История смен бариста: когда открыл, закрыл, итоги |
+| GET | `/api/admin/baristas` | Список баристов |
+| POST | `/api/admin/baristas` | Добавить бариста (имя + PIN) |
+| PUT | `/api/admin/baristas/:id/pin` | Сменить PIN |
+| PUT | `/api/admin/baristas/:id/active` | Активировать / деактивировать |
+| GET | `/api/admin/baristas/:id/shifts` | История смен бариста |
 
 **Права бариста и лог**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/barista/settings` | Текущие права: может ли бариста редактировать меню |
-| PUT | `/api/admin/barista/settings` | Включить/выключить право редактировать меню |
-| GET | `/api/admin/barista/log` | Лог всех действий с фильтром по бариста, дате, типу действия |
+| GET | `/api/admin/barista/settings` | Права бариста |
+| PUT | `/api/admin/barista/settings` | Включить/выключить редактирование меню |
+| GET | `/api/admin/barista/log` | Лог действий с фильтром |
 
-**Первый запуск (мастер настройки)**
+**Первый запуск**
 | Метод | URL | Что делает |
 |---|---|---|
-| GET | `/api/admin/setup/status` | Проверить завершён ли первый запуск (название, меню, бот заполнены?) |
-| PUT | `/api/admin/setup/complete` | Отметить первый запуск завершённым — скрыть мастер |
+| GET | `/api/admin/setup/status` | Проверить что заполнено |
+| PUT | `/api/admin/setup/complete` | Завершить мастер настройки |
 
 **Бот**
 | Метод | URL | Что делает |
 |---|---|---|
-| POST | `/webhook` | Принимает входящие сообщения от Telegram (защищён WEBHOOK_SECRET) |
+| POST | `/api/webhook` | Telegram webhook (защищён WEBHOOK_SECRET) |
+
+**Cron (вызывает Vercel, не пользователь)**
+| Метод | URL | Что делает |
+|---|---|---|
+| GET | `/api/cron/birthday` | Отправляет поздравления клиентам с ДР сегодня |
+| GET | `/api/cron/inactive` | Напоминание клиентам, не заходившим N дней |
+| GET | `/api/cron/broadcasts` | Проверяет scheduled_at и отправляет запланированные рассылки |
 
 ---
 
@@ -399,9 +465,9 @@ WEBHOOK_SECRET=случайная_строка   -- защита webhook от п
 | Отметить кружку / скидку | — | ✅ | ✅ |
 | Искать клиента по @username | — | ✅ | ✅ |
 | Редактировать позиции меню | — | ⚙️ если разрешено | ✅ |
-| Добавить / удалить позицию | — | ❌ всегда | ✅ |
+| Добавить / удалить позицию | — | ❌ | ✅ |
 | Просмотр всех клиентов | — | ❌ | ✅ |
-| Ручная правка кружек клиента | — | ❌ | ✅ |
+| Ручная правка кружек | — | ❌ | ✅ |
 | Рассылки | — | ❌ | ✅ |
 | Настройки кофейни / бота | — | ❌ | ✅ |
 | Управление правами бариста | — | ❌ | ✅ |
@@ -431,191 +497,116 @@ Mini App → POST /api/orders
   → Сохранить заказ в orders (статус 'new')
   → Найти клиента в customers, обновить status → 'buyer'
   → Отправить сообщение менеджеру в Telegram (через бота)
-  → Оповестить SSE-поток бариста о новом заказе — бариста видит его мгновенно
+  → Supabase Realtime автоматически уведомляет подключённых баристов о новой строке в orders
   → Вернуть order_id в Mini App
 
   ⚠️ Кружки НЕ считаются автоматически.
-     Только бариста нажимает кнопку — тогда фиксируется в order_promos:
-     - Если у заказа есть order_id в системе → запись привязывается к заказу
-     - Если клиент пришёл без заказа из Mini App → order_id = NULL, запись всё равно сохраняется
+     Только бариста нажимает кнопку — фиксируется в order_promos.
 ```
 
 ### Сценарий 2: Владелец меняет статус заказа
 ```
 Adminка → PUT /api/admin/orders/:id/status { status: 'ready' }
   → Обновить статус в БД
-  → Если статус 'ready' — отправить клиенту в Telegram: «Ваш заказ готов!»
+  → Если статус 'ready' — бот отправляет клиенту: «Ваш заказ готов!»
   → Вернуть обновлённый заказ
 ```
 
 ### Сценарий 3: Рассылка клиентам
 ```
-Adminка → POST /api/admin/broadcast { text: '...' }
-  → Получить всех клиентов из customers
-  → Пройти по каждому: бот отправляет сообщение на tg_id
-  → Сохранить в broadcasts: текст + кол-во отправленных
-  → Вернуть статистику (отправлено / ошибок)
+Adminка → POST /api/admin/broadcast { text: '...', segment: 'buyers', scheduled_at: null }
+  → Если scheduled_at null — отправить немедленно:
+    Выбрать нужных customers, бот отправляет сообщение каждому
+    Сохранить в broadcasts: sent=true, sent_to=N
+  → Если scheduled_at указан — сохранить в broadcasts (sent=false)
+    Vercel Cron (/api/cron/broadcasts) каждые 5 минут проверяет и отправляет
 ```
 
 ### Сценарий 4: Бариста применяет акцию к заказу
 ```
-Бариста видит заказ → видит список применимых акций → нажимает «Применить»
+Бариста видит заказ → список акций → нажимает «Применить»
   → POST /api/barista/orders/:id/promos/:promo_id
-  → Проверить: эта акция уже применена к этому заказу? (order_promos)
-  → Если да — вернуть ошибку «Уже отмечено»
-  → Если нет — определить тип акции из promos.type:
+  → Проверить: акция уже применена? → если да — ошибка «Уже отмечено»
+  → Определить тип акции (cups_loyalty / discount_first / и т.д.)
 
   Тип 'cups_loyalty':
-    → Записать в order_promos: event='cup_earned', value=+1
+    → order_promos: event='cup_earned', value=+1
     → customer_promo_progress.progress +1
-    → Если progress достиг totalCups (из config):
-         Создать отдельный заказ в orders:
-           customer_tg_id = клиент, items = [{name: 'Бесплатная кружка', price: 0}],
-           total = 0, status = 'done'
-         Записать в order_promos: event='free_cup_given', value=-totalCups,
-           order_id = ID нового заказа
+    → Если progress >= totalCups:
+         Создать заказ: items=[{name:'Бесплатная кружка', price:0}], total=0
+         order_promos: event='free_cup_given', value=-totalCups
          progress сбросить в 0
-         Уведомить клиента в Telegram «🎉 Ваша бесплатная кружка готова!»
+         Уведомить клиента в Telegram «🎉 Бесплатная кружка!»
 
   Тип 'discount_first' / 'discount_percent':
-    → Записать в order_promos: event='discount_applied', value=процент скидки
-    → Уведомить клиента в Telegram «🎁 Скидка [N]% применена к вашему заказу»
-
-  → Вернуть обновлённый прогресс клиента по всем акциям
+    → order_promos: event='discount_applied', value=процент
+    → Уведомить клиента «🎁 Скидка [N]% применена»
 ```
 
-### Сценарий 5: Акция «Купи 2 — получи третий в подарок»
+### Сценарий 5: Бариста ищет клиента вручную
 ```
-Бариста видит заказ → в списке акций есть 'buy_n_get_one' → нажимает «Применить»
-  → POST /api/barista/orders/:id/promos/:promo_id
-  → Система проверяет: в заказе есть items из config.items в кол-ве >= buyCount?
-  → Если нет — вернуть ошибку «Условие акции не выполнено»
-  → Если да — записать в order_promos: event='free_item_given'
-  → Уведомить клиента в Telegram «🎁 Третий напиток за наш счёт!»
+Бариста → GET /api/barista/customers/search?username=alex
+  → Найти в customers по полю username
+  → Вернуть: имя, прогресс по каждой активной акции
+  → Бариста выбирает акцию и нажимает «Применить»
+  → POST /api/barista/customers/:tg_id/promos/:promo_id (order_id = null)
 ```
 
 ### Сценарий 6: Акция «Скидка в день рождения»
 ```
-Первый раз (дата рождения ещё не известна):
-  Клиент получает заказ → показывает паспорт баристе
-  → Бариста нажимает «Ввести дату рождения» на карточке клиента
+Первый раз (дата не известна):
+  Клиент показывает паспорт → Бариста вводит дату
   → PUT /api/barista/customers/:tg_id/birthday { birthday: '03-15' }
-  → Дата сохраняется в customers.birthday — один раз навсегда
-  → Если сегодня попадает в ±daysWindow — акция применяется сразу к текущему заказу
+  → Если сегодня ±daysWindow — акция применяется сразу
 
-Последующие визиты (дата уже сохранена):
-  → Клиент делает заказ → бариста открывает карточку заказа
-  → Система автоматически проверяет birthday клиента
-  → Если сегодня ±daysWindow от дня рождения — акция 'birthday_discount'
-     появляется в списке доступных акций на карточке заказа
-  → Бариста нажимает «Применить»
-  → Записать в order_promos: event='discount_applied', value=20
-  → Уведомить клиента в Telegram «🎂 С днём рождения! Скидка 20% применена»
+Последующие визиты:
+  При открытии карточки заказа — система проверяет birthday
+  Если в дне ±daysWindow — акция появляется в списке доступных
 ```
 
 ### Сценарий 7: Акция «Приведи друга»
 ```
-Клиент нажимает «Поделиться» в Mini App
+Клиент нажимает «Поделиться»
   → GET /api/customers/:tg_id/referral
-  → Если referral_code ещё нет — сгенерировать уникальный код, сохранить в customers
-  → Вернуть ссылку: https://t.me/bot?start=ref_КОД
+  → Генерируется referral_code → ссылка: https://t.me/bot?start=ref_КОД
 
-Друг переходит по ссылке → открывает бота → /start ref_КОД
-  → Webhook получает команду /start с параметром
-  → Создать запись клиента в customers (имя, tg_id, username из Telegram)
-  → Найти пригласившего по referral_code
-  → Сохранить referred_by в профиле нового клиента (бонус ещё не начисляется)
-  → Контакт друга теперь в базе — даже если заказ так и не сделает
+Друг переходит → /start ref_КОД
+  → /api/webhook → команда /start с параметром
+  → Создать запись customers, сохранить referred_by = tg_id пригласившего
 
 Друг делает первый заказ → POST /api/orders
-  → Система видит что у клиента заполнен referred_by
-  → Записать бонус в order_promos: event='referral_bonus', order_id = ID этого заказа
-     (bonusType: 'cups' → +1 к прогрессу cups_loyalty пригласившего)
-  → Уведомить пригласившего в Telegram «🎉 Друг сделал первый заказ — тебе +1 кружка!»
-
-  ⚠️ Бонус без заказа не начисляется.
-     Друг просто открыл бота — ничего не происходит.
-     Бонус только когда друг реально купил.
+  → referred_by заполнен → бонус пригласившему в order_promos
+  → Уведомить пригласившего «🎉 Друг купил — тебе +1 кружка!»
 ```
 
-### Сценарий 8: Бариста ищет клиента вручную
+### Сценарий 8: Cron — автосообщения
 ```
-Бариста → GET /api/barista/customers/search?username=alex
-  → Найти в customers по полю username (без @)
-  → Вернуть: имя, прогресс по каждой активной акции
-  → Бариста выбирает акцию и нажимает «Применить»
-  → POST /api/barista/customers/:tg_id/promos/:promo_id — логика та же что в сценарии 4
-    (order_id = null, marked_by = 'barista')
+Vercel вызывает GET /api/cron/birthday (каждый день в 9:00 UTC):
+  → Найти customers где birthday = сегодня ±daysWindow
+  → Если auto_birthday_enabled = 'true' в settings
+  → Бот отправляет поздравление каждому
+
+Vercel вызывает GET /api/cron/inactive (каждый день в 10:00 UTC):
+  → Найти customers где last_seen < (сегодня - N дней) И status = 'buyer'
+  → Если auto_inactive_enabled = 'true'
+  → Бот отправляет напоминание
+
+Vercel вызывает GET /api/cron/broadcasts (каждые 5 минут):
+  → Найти broadcasts где sent=false И scheduled_at <= NOW
+  → Отправить, обновить sent=true, sent_to=N
 ```
 
 ### Сценарий 9: Владелец смотрит аналитику
 ```
 Adminка → GET /api/admin/analytics/sources
-  → Система считает по таблице customers + orders:
-    - По каждому source: кол-во посетителей (всех), покупателей (status='buyer'), выручка
-  → Владелец видит: «С QR пришло 40 человек, купили 28, выручка 18 400 ₽»
-                    «С Яндекс Карт пришло 15 человек, купили 3, выручка 2 100 ₽»
+  → PostgreSQL группирует customers + orders по source
+  → Владелец видит: «С QR 40 человек, купили 28, выручка 18 400 ₽»
 
 Adminка → GET /api/admin/analytics/top-items?period=week
-  → Система считает кол-во каждой позиции из orders.items (JSON) за период
-  → Возвращает топ-5: [{name: 'Капучино', sold: 47, revenue: 10340}, ...]
+  → Разворачивает JSONB-массив orders.items → GROUP BY name → TOP 5
 
 Adminка → GET /api/admin/analytics/peak-hours
-  → Группирует заказы по часу created_at
-  → Возвращает: [{hour: 9, orders: 12}, {hour: 10, orders: 31}, ...]
-  → Владелец видит: пик с 9 до 11, затишье с 14 до 16
-```
-
-### Сценарий 10: Автосообщения бота
-```
-Новый клиент → POST /api/customers (первый заход)
-  → Если settings.auto_messages.welcome.enabled = true
-  → Бот отправляет приветственное сообщение на tg_id через 30 секунд
-
-Ночной cron (каждый день в 9:00):
-  → Найти клиентов у которых customers.birthday = сегодня ±daysWindow
-  → Если settings.auto_messages.birthday.enabled = true
-  → Бот отправляет поздравление каждому из них
-
-Ночной cron (каждый день в 10:00):
-  → Найти клиентов у которых last_seen < (сегодня - inactive.days) И status = 'buyer'
-  → Если settings.auto_messages.inactive.enabled = true
-  → Бот отправляет напоминание «Давно не заходил»
-  → Обновить last_seen чтобы не слать повторно раньше времени
-```
-
-### Сценарий 11: Сегментированная рассылка
-```
-Adminка → POST /api/admin/broadcast
-  { text: 'Новинка: Круассан с лососем!', segment: 'buyers', scheduled_at: '2026-05-01T10:00:00' }
-  → Сохранить в broadcasts (sent=0, scheduled_at=указанное время)
-  → Cron каждые 5 минут проверяет broadcasts где sent=0 AND scheduled_at <= NOW
-  → При наступлении времени:
-    - segment='buyers'   → выбрать customers где status='buyer'
-    - segment='visitors' → выбрать customers где status='visitor'
-    - segment='inactive' → выбрать customers где last_seen < (сегодня - 14 дней)
-    - segment='vip'      → выбрать customers где vip=1
-    - segment='all'      → все customers
-  → Отправить сообщение каждому через бота
-  → Обновить broadcasts: sent=1, sent_to=кол-во
-```
-
-### Сценарий 12: Владелец включает/выключает редактирование меню для бариста
-```
-Adminка → PUT /api/admin/barista/settings { barista_can_edit_menu: true }
-  → Обновить settings.json
-  → Все последующие запросы бариста к PUT /api/barista/menu/items/:id
-    проверяют этот флаг — если false, возвращают 403
-```
-
-### Сценарий 13: Подключение нового бота
-```
-Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
-  → Проверить токен через Telegram API (getMe)
-  → Сохранить токен в .env и в памяти
-  → Удалить старый webhook (если был)
-  → Зарегистрировать новый webhook: /webhook?secret=WEBHOOK_SECRET
-  → Вернуть имя бота (@username)
+  → GROUP BY EXTRACT(HOUR FROM created_at) → [{hour: 9, orders: 12}, ...]
 ```
 
 ---
@@ -624,29 +615,27 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 
 ### Библиотека
 
-**Chart.js** — без npm, без сборщика, подключается одной строкой:
+**Chart.js** — без npm, подключается CDN:
 ```html
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 ```
-Поддерживает: столбчатые, линейные, круговые, пончиковые графики. Для воронки — кастомный плагин или вертикальные бары с убыванием.
 
-Для выбора периода — нативный `<input type="date">`, без внешних библиотек.
+Для выбора периода — нативный `<input type="date">`.
 
 ---
 
 ### Принцип drill-down (клик на график → таблица)
 
-Каждый график работает по одному принципу:
-1. Пользователь кликает на элемент графика (столбец, сектор, точку)
-2. Под графиком раскрывается панель с таблицей — без перехода на другой экран
-3. Таблица показывает детали именно того что было кликнуто
-4. Повторный клик на тот же элемент — сворачивает панель
+1. Клик на элемент графика (столбец, сектор, точку)
+2. Под графиком раскрывается таблица — без перехода на другой экран
+3. Таблица показывает детали кликнутого элемента
+4. Повторный клик — сворачивает панель
 
 ---
 
 ### Навигация adminки
 
-Нижняя панель — 4 вкладки, всегда видна, один тап для переключения:
+Нижняя панель — 4 вкладки:
 
 ```
 ┌─────────────────────────────────────┐
@@ -660,16 +649,11 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 └────────┴────────┴──────────┴────────┘
 ```
 
-На мобильном — привычно как любое приложение.
-На планшете и компьютере — та же нижняя панель, контент растягивается.
-
 ---
 
 ### Экраны adminки
 
 #### 📊 Вкладка 1 — Дашборд
-
-Все аналитические блоки на одном экране. Один фильтр периода вверху применяется ко всем графикам сразу. Заказы и клиенты открываются здесь же через drill-down — без перехода в другую вкладку.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -694,21 +678,16 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Drill-down — клик на элемент графика открывает таблицу внизу:**
+**Drill-down:**
 
 | Кликаешь | Видишь таблицу | API |
 |---|---|---|
-| Точка линейного графика | Заказы за этот день: время, клиент, состав, сумма | `GET /api/admin/orders?date=2026-04-14` |
-| Столбец «Топ позиций» | Заказы с этой позицией: дата, клиент, состав, сумма | `GET /api/admin/orders?item_name=Капучино&period=week` |
-| Столбец «Пиковые часы» | Заказы в этот час за период: дата, время, клиент, сумма | `GET /api/admin/orders?hour=10&period=week` |
-| Сектор «Источники» | Клиенты с этого источника: имя, статус, заказов, выручка | `GET /api/admin/customers?source=qr` |
-| Сектор «Категории» | Позиции категории: название, продано шт, выручка | `GET /api/admin/analytics/top-items?category=Кофе` |
-| Сегмент воронки | Клиенты на этом этапе: имя, username, источник, дата | `GET /api/admin/customers?status=visitor` |
-
-**Переключатель «Сравнить с прошлым периодом»** — пунктирная линия на графике и колонка «было» в метриках:
-```
-Выручка: 42 800 руб.  (стрелка вверх) +18% vs прошлая неделя  было 36 300 руб.
-```
+| Точка линейного графика | Заказы за этот день | `GET /api/admin/orders?date=2026-04-14` |
+| Столбец «Топ позиций» | Заказы с этой позицией | `GET /api/admin/orders?item_name=Капучино&period=week` |
+| Столбец «Пиковые часы» | Заказы в этот час | `GET /api/admin/orders?hour=10&period=week` |
+| Сектор «Источники» | Клиенты с этого источника | `GET /api/admin/customers?source=qr` |
+| Сектор «Категории» | Позиции категории | `GET /api/admin/analytics/top-items?category=Кофе` |
+| Сегмент воронки | Клиенты на этом этапе | `GET /api/admin/customers?status=visitor` |
 
 ---
 
@@ -728,9 +707,6 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 │  [кр.] Скрыт      (стрелки) [Ред.]  │
 └─────────────────────────────────────┘
 ```
-- Переключатель зелёный/красный — показать / скрыть позицию без удаления
-- Стрелки вверх/вниз — изменить порядок в меню
-- Кнопка «Редактировать» — цена, название, описание, фото
 
 **Акции:**
 ```
@@ -742,13 +718,8 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 ├─────────────────────────────────────┤
 │  Скидка 10% на первый заказ         │
 │  [зел.] Активна         [Статистика]│
-├─────────────────────────────────────┤
-│  Скидка в день рождения             │
-│  [кр.] Выключена        [Статистика]│
 └─────────────────────────────────────┘
 ```
-- Переключатель — включить / выключить акцию
-- Кнопка «Статистика» — таблица применений: когда, кому, к какому заказу, бариста
 
 ---
 
@@ -827,10 +798,9 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 
 ---
 
-#### 🚀 Мастер первого запуска (исправление: установка без разработчика)
+#### 🚀 Мастер первого запуска
 
-Показывается автоматически при первом входе в adminку — пока все 4 шага не пройдены.
-После завершения скрывается навсегда.
+Показывается при первом входе в adminку — пока 4 шага не пройдены.
 
 ```
 ┌─────────────────────────────────────┐
@@ -853,249 +823,282 @@ Adminка → PUT /api/admin/settings { bot_token: '123456:ABC...' }
 └─────────────────────────────────────┘
 ```
 
-Каждый шаг объясняет зачем это нужно и что делать. Технических терминов нет.
-API: `GET /api/admin/setup/status` — проверяет что заполнено, показывает нужный шаг.
+---
+
+#### Экраны бариста
+
+**[Первый вход] — онбординг:**
+```
+┌─────────────────────────────────────┐
+│  Привет, Маша! 👋                   │
+│  Вот как здесь всё работает:        │
+│                                     │
+│  📦 Новый заказ — нажми             │
+│     «Принять» чтобы начать          │
+│                                     │
+│  ☕ Кружка лояльности —             │
+│     нажми «+1» в карточке заказа    │
+│                                     │
+│  🔍 Клиент без заказа —             │
+│     найди по QR или @username       │
+│                                     │
+│  [ Понятно, начинаем! ]             │
+└─────────────────────────────────────┘
+```
+
+**[Нет заказов] — пустой экран:**
+```
+┌─────────────────────────────────────┐
+│  Пока заказов нет ☕                │
+│                                     │
+│  Топ сегодня:                       │
+│  1. Капучино      — 47 шт           │
+│  2. Латте         — 31 шт           │
+│  3. Матча-латте   — 22 шт           │
+│                                     │
+│  Пик заказов:                       │
+│  обычно с 09:00 до 11:00            │
+└─────────────────────────────────────┘
+```
+
+**[Есть заказы] — список:**
+```
+┌─────────────────────────────────────┐
+│  🔴 Новый  •  10:34                 │
+│  Иван К.                            │
+│  Капучино × 2, Эклер   660 ₽        │
+│  [ Принять ]                        │
+├─────────────────────────────────────┤
+│  🟡 Готовится  •  10:21             │
+│  Мария С.                           │
+│  Латте, Матча-латте    440 ₽        │
+│  [ Готов ] [ Акции ▾ ]              │
+└─────────────────────────────────────┘
+```
+
+> Новые заказы появляются мгновенно через Supabase Realtime — без обновления страницы.
+> При новом заказе — короткий бип (Web Audio API).
+
+**[Поиск клиента] — наличные / карта без заказа:**
+```
+┌─────────────────────────────────────┐
+│  [ @username  или  📷 QR ]          │
+│                                     │
+│  ✅ Клиент найден:                  │
+│  Иван К. (@ivan_k)                  │
+│  Кружек накоплено: 4 из 6           │
+│                                     │
+│  Способ оплаты:                     │
+│  [ 💵 Наличкой ] [ 💳 Картой ]      │
+│                                     │
+│  [ + Отметить кружку ]              │
+└─────────────────────────────────────┘
+```
+
+**[Закрытие смены] — кнопка в шапке:**
+```
+┌─────────────────────────────────────┐
+│  Маша  •  смена с 09:00       [🚪]  │
+├─────────────────────────────────────┤
+│  ...список заказов...               │
+└─────────────────────────────────────┘
+```
+
+При нажатии [🚪] — экран итогов смены:
+```
+┌─────────────────────────────────────┐
+│  Смена завершена ✅                  │
+│  09:00 — 18:45                      │
+│                                     │
+│  Заказов принято:  34               │
+│  Наличными:        8 200 руб.       │
+│  Картой:           14 600 руб.      │
+│  Итого:            22 800 руб.      │
+│                                     │
+│  [ Закрыть смену ]                  │
+└─────────────────────────────────────┘
+```
 
 ---
 
-## Структура файлов бэкенда
+## Структура файлов
 
 ```
 tg-coffee-catalog/
-├── tg-app/                    # Mini App (фронтенд) — без изменений
+├── tg-app/                    # Mini App (фронтенд клиента) — без изменений
 │   ├── index.html
 │   ├── app.js
-│   ├── style.css
-│   └── data/menu.json         # Редактируется через API
+│   └── style.css
 │
-├── backend/                   # Новая папка
-│   ├── server.js              # Точка входа, Express app
-│   ├── db.js                  # Инициализация SQLite, создание таблиц
-│   ├── bot.js                 # Инициализация бота, отправка сообщений
-│   │
-│   ├── routes/
-│   │   ├── public.js          # GET /api/menu, POST /api/orders, GET /api/customers/:id
-│   │   ├── admin.js           # Все /api/admin/* маршруты
-│   │   ├── barista.js         # Все /api/barista/* маршруты
-│   │   └── webhook.js         # POST /webhook
-│   │
-│   ├── middleware/
-│   │   └── auth.js            # Проверка JWT + роль (admin | barista)
-│   │
-│   └── uploads/               # Загруженные фото (logo, товары)
+├── api/                       # Vercel Serverless Functions
+│   ├── menu.js                # GET /api/menu
+│   ├── orders.js              # POST /api/orders
+│   ├── customers/
+│   │   ├── index.js           # POST /api/customers
+│   │   ├── [tg_id].js         # GET /api/customers/:tg_id
+│   │   └── [tg_id]/
+│   │       └── referral.js    # GET /api/customers/:tg_id/referral
+│   ├── admin/
+│   │   ├── login.js
+│   │   ├── settings.js
+│   │   ├── menu/
+│   │   │   ├── index.js
+│   │   │   ├── history.js
+│   │   │   └── items/
+│   │   │       └── [id].js
+│   │   ├── orders/
+│   │   │   ├── index.js
+│   │   │   └── stats.js
+│   │   ├── analytics/
+│   │   │   ├── top-items.js
+│   │   │   ├── avg-check.js
+│   │   │   ├── peak-hours.js
+│   │   │   ├── compare.js
+│   │   │   ├── conversion.js
+│   │   │   ├── sources.js
+│   │   │   └── categories.js
+│   │   ├── customers/
+│   │   │   ├── index.js
+│   │   │   └── [tg_id].js
+│   │   ├── broadcast/
+│   │   │   ├── index.js
+│   │   │   ├── scheduled.js
+│   │   │   └── history.js
+│   │   ├── auto-messages.js
+│   │   ├── promos/
+│   │   │   ├── index.js
+│   │   │   └── [id].js
+│   │   ├── baristas/
+│   │   │   ├── index.js
+│   │   │   └── [id].js
+│   │   ├── barista/
+│   │   │   ├── settings.js
+│   │   │   └── log.js
+│   │   ├── upload/
+│   │   │   ├── logo.js
+│   │   │   └── image.js
+│   │   └── setup/
+│   │       └── status.js
+│   ├── barista/
+│   │   ├── login.js
+│   │   ├── orders/
+│   │   │   ├── index.js
+│   │   │   └── [id].js
+│   │   ├── shift/
+│   │   │   ├── open.js
+│   │   │   ├── summary.js
+│   │   │   └── close.js
+│   │   ├── customers/
+│   │   │   └── search.js
+│   │   └── upload/
+│   │       └── image.js
+│   ├── webhook.js             # POST /api/webhook — Telegram Bot
+│   └── cron/
+│       ├── birthday.js        # Поздравления с ДР
+│       ├── inactive.js        # Напоминания неактивным
+│       └── broadcasts.js      # Запланированные рассылки
 │
-├── admin/                     # Adminка владельца (фронтенд)
-│   ├── index.html             # SPA adminки
-│   ├── admin.js               # Логика adminки
-│   └── admin.css              # Стили adminки
+├── lib/                       # Общие утилиты (не serverless)
+│   ├── supabase.js            # Supabase client (service role)
+│   ├── auth.js                # JWT выдача и проверка
+│   └── bot.js                 # Telegram Bot хелпер (отправка сообщений)
 │
-├── barista/                   # Интерфейс бариста (фронтенд)
-│   ├── index.html             # Экран входа по PIN + рабочий экран
-│   ├── barista.js             # Логика: заказы, кружки, поиск клиента
-│   └── barista.css            # Стили — крупные элементы под планшет
+├── admin/                     # Adminка владельца (статика)
+│   ├── index.html
+│   ├── admin.js
+│   └── admin.css
 │
-│   Экраны бариста:
+├── barista/                   # Интерфейс бариста (статика)
+│   ├── index.html
+│   ├── barista.js
+│   └── barista.css
 │
-│   [Первый вход бариста] — онбординг (исправление: обучение нового бариста):
-│   ┌─────────────────────────────────┐
-│   │  Привет, Маша! 👋               │
-│   │  Вот как здесь всё работает:    │
-│   │                                 │
-│   │  📦 Новый заказ — нажми         │
-│   │     «Принять» чтобы начать      │
-│   │                                 │
-│   │  ☕ Кружка лояльности —         │
-│   │     нажми «+1» в карточке       │
-│   │     заказа после выдачи         │
-│   │                                 │
-│   │  🔍 Клиент без заказа —         │
-│   │     найди по QR или @username   │
-│   │                                 │
-│   │  [ Понятно, начинаем! ]         │
-│   └─────────────────────────────────┘
-│   Показывается один раз при первом входе нового бариста.
-│   После нажатия «Понятно» — больше не появляется.
-│
-│   [Нет заказов] — пустой экран показывает данные из аналитики:
-│   ┌─────────────────────────────────┐
-│   │  Пока заказов нет ☕            │
-│   │                                 │
-│   │  Топ сегодня:                   │
-│   │  1. Капучино      — 47 шт       │
-│   │  2. Латте         — 31 шт       │
-│   │  3. Матча-латте   — 22 шт       │
-│   │                                 │
-│   │  Пик заказов:                   │
-│   │  обычно с 09:00 до 11:00        │
-│   └─────────────────────────────────┘
-│   Данные: GET /api/admin/analytics/top-items?period=today
-│           GET /api/admin/analytics/peak-hours
-│
-│   [Есть заказы] — список карточек, новые сверху:
-│   ┌─────────────────────────────────┐
-│   │  🔴 Новый  •  10:34             │
-│   │  Иван К.                        │
-│   │  Капучино × 2, Эклер   660 ₽   │
-│   │  [ Принять ]                    │
-│   ├─────────────────────────────────┤
-│   │  🟡 Готовится  •  10:21         │
-│   │  Мария С.                       │
-│   │  Латте, Матча-латте    440 ₽   │
-│   │  [ Готов ] [ Акции ▾ ]          │
-│   └─────────────────────────────────┘
-│
-│   [Карточка заказа при нажатии]:
-│   ┌─────────────────────────────────┐
-│   │  Иван К. (@ivan_k)              │
-│   │  Капучино × 2  —  440 ₽        │
-│   │  Эклер × 1     —  220 ₽        │
-│   │  Итого: 660 ₽                   │
-│   ├─────────────────────────────────┤
-│   │  [ Принять ] [Готовится] [Готов]│
-│   ├─────────────────────────────────┤
-│   │  Акции:                         │
-│   │  ☕ Кружка лояльности  [ +1 ]   │
-│   │  🎂 День рождения      [Скидка] │
-│   └─────────────────────────────────┘
-│
-│   [Поиск клиента] — оплата наличными или картой без заказа в системе:
-│   Два способа найти клиента:
-│   • Бариста вводит @username вручную
-│   • Клиент показывает QR-код из своего Mini App — бариста сканирует камерой планшета
-│     (QR содержит tg_id клиента, планшет открывает его профиль автоматически)
-│
-│   ┌─────────────────────────────────┐
-│   │  [ @username  или  📷 QR ]      │
-│   │                                 │
-│   │  ✅ Клиент найден:              │
-│   │  Иван К. (@ivan_k)              │
-│   │  Кружек накоплено: 4 из 6       │
-│   │                                 │
-│   │  Способ оплаты:                 │
-│   │  [ 💵 Наличкой ] [ 💳 Картой ] │
-│   │                                 │
-│   │  [ + Отметить кружку ]          │
-│   └─────────────────────────────────┘
-│
-│   ┌─────────────────────────────────┐
-│   │  ❌ Клиент не найден            │
-│   │                                 │
-│   │  Попроси клиента подключиться:  │
-│   │  📷 Отсканируй QR на стойке     │
-│   │     или напиши боту             │
-│   │     @hotblackcoffeebot          │
-│   └─────────────────────────────────┘
-│   (QR на стойке ведёт на бота — клиент нажимает /start,
-│    попадает в базу, бариста повторно ищет его)
-│
-│   Способ оплаты сохраняется в order_promos.details:
-│   { "payment": "cash" } или { "payment": "card" }
-│
-│   [Новый заказ] — звук и автопереподключение (исправление: планшет заснул):
-│   • При получении нового заказа через SSE — воспроизводится звуковой сигнал
-│     (короткий бип через Web Audio API, без внешних файлов)
-│   • Если SSE соединение оборвалось (планшет проснулся, сеть пропала) —
-│     barista.js автоматически переподключается каждые 5 секунд
-│   • Пока нет соединения — показывается полоска «Нет связи, переподключаюсь...»
-│
-│   [Закрытие смены] — кнопка в шапке экрана бариста (исправление: итог дня):
-│   ┌─────────────────────────────────┐
-│   │  Маша  •  смена с 09:00   [🚪] │  ← кнопка закрытия смены
-│   ├─────────────────────────────────┤
-│   │  ...список заказов...           │
-│   └─────────────────────────────────┘
-│
-│   При нажатии [🚪] — экран итогов смены:
-│   ┌─────────────────────────────────┐
-│   │  Смена завершена ✅              │
-│   │  09:00 — 18:45                  │
-│   │                                 │
-│   │  Заказов принято:  34           │
-│   │  Наличными:        8 200 руб.   │
-│   │  Картой:           14 600 руб.  │
-│   │  Итого:            22 800 руб.  │
-│   │                                 │
-│   │  [ Закрыть смену ]              │
-│   └─────────────────────────────────┘
-│   API: POST /api/barista/shift/close → фиксирует данные в таблице shifts
-│
-├── .env                       # Секреты
+├── vercel.json                # Cron jobs + настройки деплоя
 ├── package.json
+├── .env.local                 # Секреты (не в git)
 └── BACKEND-PLAN.md            # Этот файл
+```
+
+### vercel.json
+```json
+{
+  "crons": [
+    { "path": "/api/cron/birthday",   "schedule": "0 6 * * *"  },
+    { "path": "/api/cron/inactive",   "schedule": "0 7 * * *"  },
+    { "path": "/api/cron/broadcasts", "schedule": "*/5 * * * *" }
+  ]
+}
 ```
 
 ---
 
 ## Порядок разработки
 
-### Этап 1 — Основа (без этого ничего не работает)
-1. `backend/server.js` — Express, CORS, статика для tg-app и admin
-2. `backend/db.js` — создание таблиц SQLite при первом запуске
-3. `backend/middleware/auth.js` — JWT проверка
-4. `POST /api/admin/login` — вход по паролю
-5. `GET /api/menu` и `PUT /api/admin/menu` — чтение/запись menu.json
+### Этап 1 — Основа Supabase
+1. Создать проект в Supabase → получить URL и ключи
+2. Создать все таблицы в Supabase Dashboard (SQL editor)
+3. Наполнить `menu_items` из текущего menu.json (первичные данные)
+4. `lib/supabase.js` — Supabase client с service_role ключом
+5. `lib/auth.js` — выдача и проверка JWT для admin и barista
 
-### Этап 2 — Заказы и клиенты
-6. `POST /api/orders` — приём заказа, сохранение, отправка в Telegram
-7. `POST /api/customers` и `GET /api/customers/:tg_id` — регистрация и кружки
-8. `GET /api/admin/orders` и `PUT /api/admin/orders/:id/status` — управление заказами
+### Этап 2 — Публичное API
+6. `api/menu.js` — `GET /api/menu` из таблицы menu_items
+7. `api/customers/index.js` — `POST /api/customers` (регистрация, UTM)
+8. `api/customers/[tg_id].js` — `GET /api/customers/:tg_id`
+9. `api/orders.js` — `POST /api/orders` (приём, смена статуса visitor→buyer)
 
-### Этап 3 — Adminка (интерфейс)
-9. `admin/index.html` — страница входа + разделы: меню, заказы, клиенты, настройки
-10. Загрузка фото (`POST /api/admin/upload/image`)
-11. Настройки кофейни (`GET/PUT /api/admin/settings`)
-12. Управление правами бариста — переключатель редактирования меню, смена PIN
+### Этап 3 — Adminка API
+10. `api/admin/login.js`
+11. `api/admin/menu/` — CRUD меню
+12. `api/admin/orders/` — список и управление заказами
+13. `api/admin/settings.js` — настройки кофейни
+14. `api/admin/upload/` — загрузка в Supabase Storage
 
-### Этап 4 — Интерфейс бариста
-13. `barista/index.html` — экран PIN-входа (4 цифры, крупные кнопки)
-14. Рабочий экран: список активных заказов, кнопки смены статуса
-15. Карточка заказа: имя клиента, позиции, кнопка «Отметить кружку»
-16. Пустой экран (нет активных заказов) — топ позиций и пик заказов из аналитики
-17. Поиск клиента по @username или QR-коду — для оплаты наличными/картой без заказа в системе; если клиент не найден — показать инструкцию подключиться через QR на стойке или @username бота
-18. Блок редактирования меню — появляется/скрывается по флагу из settings.json (в планах)
+### Этап 4 — Интерфейс adminки
+15. `admin/index.html` — 4 вкладки: Дашборд, Меню, Маркетинг, Настройки
+16. Вкладка Меню: список позиций, CRUD, включить/выключить
+17. Вкладка Настройки: название, логотип, сотрудники, Telegram-бот
+18. Мастер первого запуска (4 шага)
 
-### Этап 5 — Бот и рассылки
-18. `backend/bot.js` — инициализация бота по токену из .env
-19. `POST /webhook` — обработка входящих сообщений (команда /start)
-20. `PUT /api/admin/settings` с авто-регистрацией webhook
-21. `POST /api/admin/broadcast` — рассылка всем клиентам
+### Этап 5 — Бариста
+19. `api/barista/login.js` — вход по PIN
+20. `api/barista/orders/` — активные заказы, смена статуса
+21. `api/barista/shift/` — открытие и закрытие смены
+22. `barista/index.html` — вход по PIN, список заказов, закрытие смены
+23. Supabase Realtime в barista.js — мгновенные уведомления о новых заказах + звук
 
-### Этап 6 — Полировка
-22. `GET /api/admin/orders/stats` — выручка и статистика
-23. Уведомление клиенту при статусе 'ready' и при достижении 6 кружек
-24. История рассылок
+### Этап 6 — Telegram Bot
+24. `lib/bot.js` — хелпер отправки сообщений через Telegram API
+25. `api/webhook.js` — обработка /start (регистрация, реферал)
+26. `api/admin/settings.js` — регистрация webhook при сохранении токена бота
+27. Уведомления: «Заказ готов», «Бесплатная кружка», «Поздравление»
 
-### Этап 7 — Аналитика и маркетинг
+### Этап 7 — Рассылки и аналитика
+28. `api/admin/broadcast/` — сегменты, рассылка, история
+29. `api/admin/auto-messages.js` — welcome, birthday, inactive
+30. `api/cron/` — birthday, inactive, broadcasts (Vercel Cron)
+31. `api/admin/analytics/` — все 7 эндпоинтов аналитики
+32. Вкладка Дашборд в adminке: Chart.js, drill-down, фильтр периода
+33. Вкладка Маркетинг: рассылки, автосообщения
 
-25. Аналитика: топ позиций, средний чек, пиковые часы, сравнение периодов
-26. Аналитика по источникам: conversion visitor → buyer по каждому каналу
-27. Профиль клиента с историей заказов + VIP-метка + экспорт CSV
-28. Сегментированные рассылки (buyers / visitors / inactive / vip)
-29. Отложенные рассылки — cron каждые 5 минут проверяет scheduled_at
-30. Автосообщения: welcome, birthday, inactive — настройка текста и вкл/выкл в adminке
-31. Лог действий бариста — просмотр в adminке с фильтром по дате
-32. История изменений меню
-33. Временное скрытие позиции меню (`available: false`) без удаления
-34. Сортировка позиций меню вручную
-
----
-
-### Этап 8 — Исправления по критике (баги из ревью)
-35. Таблица `baristas` — личный PIN для каждого сотрудника, управление в Настройках
-36. Таблица `shifts` — открытие и закрытие смены, итоги по наличным и карте
-37. Мастер первого запуска в adminке — 4 шага без технических терминов
-38. Онбординг бариста — одноразовый экран с объяснением при первом входе
-39. Звуковой сигнал при новом заказе + автопереподключение SSE при обрыве связи
-40. Кнопка «Закрыть смену» в шапке интерфейса бариста с итогами дня
+### Этап 8 — Акции и полировка
+34. `api/admin/promos/` — CRUD акций, статистика
+35. `api/barista/orders/[id].js` — применение акций к заказам
+36. `api/barista/customers/search.js` — поиск + QR-код клиента
+37. Онбординг бариста (первый вход — одноразовый экран)
+38. `api/admin/barista/log.js` и `api/admin/menu/history.js`
+39. Экспорт клиентов в CSV
+40. Профиль клиента с историей заказов и VIP-меткой
 
 ---
 
 ## Важные ограничения
 
-- **Рассылки через бота** работают только с клиентами, которые **сами написали боту** (нажали /start). Telegram запрещает писать первым незнакомому пользователю.
-- **SQLite не подходит для Vercel** — файл сбрасывается при каждом деплое. Бэкенд деплоить на Railway или Render (там файловая система постоянная).
-- **Загруженные фото** тоже хранятся на сервере — та же причина: Railway/Render, не Vercel. Или использовать внешнее хранилище (Cloudinary free tier).
-- **Один экземпляр = одна кофейня**. Мультитенантность не заложена намеренно.
-- **День рождения** — Telegram его не передаёт (SDK отдаёт только имя, username и ID). Бариста вводит дату с паспорта клиента один раз — далее система использует автоматически.
-- **Реферальная программа** работает только если друг открывает бота по ссылке `/start ref_КОД`. Если зашёл напрямую — связь не отследить.
-- **«Купи 2 — получи третий»** — бариста применяет вручную. Автоматически система не проверяет состав заказа без участия бариста.
+- **Рассылки через бота** работают только с клиентами, которые **сами написали боту** (нажали /start). Telegram запрещает писать первым.
+- **Vercel Cron** работает только на Vercel — при локальной разработке cron не запускается, вызывать endpoint вручную.
+- **Vercel Free** — 100 GB трафика в месяц, 100 часов выполнения функций. Для одной кофейни — с огромным запасом.
+- **Supabase Realtime** требует anon-ключ на клиенте (barista.js). Его можно хранить в открытую — он только читает разрешённые таблицы (настраивается через Row Level Security).
+- **Один экземпляр = одна кофейня.** Мультитенантность не заложена.
+- **День рождения** — Telegram не передаёт. Бариста вводит вручную с паспорта клиента.
+- **Реферальная программа** работает только если друг открывает бота через ссылку `/start ref_КОД`.
+- **Загрузка фото** — Supabase Storage (не локальная папка). Максимум файла на Vercel Function — 4.5 МБ. Для больших фото сжимать на клиенте перед отправкой.
