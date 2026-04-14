@@ -2,6 +2,14 @@ const express = require('express')
 const router = express.Router()
 const supabase = require('../db')
 
+// GET /api/config — публичная конфигурация для клиентов (anon ключ для Realtime)
+router.get('/config', (_req, res) => {
+  res.json({
+    supabase_url: process.env.SUPABASE_URL,
+    supabase_anon_key: process.env.SUPABASE_ANON_KEY
+  })
+})
+
 // GET /api/menu — отдать меню клиенту (только доступные позиции)
 router.get('/menu', async (req, res) => {
   const { data, error } = await supabase

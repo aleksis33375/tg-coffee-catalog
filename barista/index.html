@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Бариста — Hot Black Coffee</title>
+  <link rel="stylesheet" href="barista.css">
+</head>
+<body>
+
+<!-- ── ЭКРАН PIN-ВХОДА ─────────────────────────────────── -->
+<div id="screen-pin" class="screen">
+  <div class="pin-box">
+    <div class="pin-logo">☕</div>
+    <h1>Hot Black Coffee</h1>
+    <p class="pin-sub">Введи свой PIN</p>
+    <div class="pin-dots">
+      <span class="dot" id="dot-1"></span>
+      <span class="dot" id="dot-2"></span>
+      <span class="dot" id="dot-3"></span>
+      <span class="dot" id="dot-4"></span>
+    </div>
+    <p id="pin-error" class="pin-error hidden">Неверный PIN</p>
+    <div class="numpad">
+      <button class="num" onclick="pinPress('1')">1</button>
+      <button class="num" onclick="pinPress('2')">2</button>
+      <button class="num" onclick="pinPress('3')">3</button>
+      <button class="num" onclick="pinPress('4')">4</button>
+      <button class="num" onclick="pinPress('5')">5</button>
+      <button class="num" onclick="pinPress('6')">6</button>
+      <button class="num" onclick="pinPress('7')">7</button>
+      <button class="num" onclick="pinPress('8')">8</button>
+      <button class="num" onclick="pinPress('9')">9</button>
+      <button class="num num-empty"></button>
+      <button class="num" onclick="pinPress('0')">0</button>
+      <button class="num num-del" onclick="pinDel()">⌫</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ОНБОРДИНГ (первый вход) ─────────────────────────── -->
+<div id="screen-onboarding" class="screen hidden">
+  <div class="onboarding-box">
+    <h2 id="onboarding-greeting">Привет! 👋</h2>
+    <p>Вот как здесь всё работает:</p>
+    <div class="onboarding-items">
+      <div class="onboarding-item">
+        <span class="ob-icon">📦</span>
+        <div>
+          <strong>Новый заказ</strong>
+          <p>Появляется сам — нажми «Принять» чтобы начать готовить</p>
+        </div>
+      </div>
+      <div class="onboarding-item">
+        <span class="ob-icon">☕</span>
+        <div>
+          <strong>Кружка лояльности</strong>
+          <p>Нажми «+1 кружка» в карточке заказа после выдачи</p>
+        </div>
+      </div>
+      <div class="onboarding-item">
+        <span class="ob-icon">🔍</span>
+        <div>
+          <strong>Клиент без заказа</strong>
+          <p>Найди по @username через кнопку поиска внизу</p>
+        </div>
+      </div>
+    </div>
+    <button onclick="finishOnboarding()">Понятно, начинаем!</button>
+  </div>
+</div>
+
+<!-- ── ОСНОВНОЙ ЭКРАН ──────────────────────────────────── -->
+<div id="screen-main" class="screen hidden">
+
+  <!-- Шапка -->
+  <header class="barista-header">
+    <div class="header-left">
+      <span id="header-name" class="header-name">Бариста</span>
+      <span id="header-shift" class="header-shift">смена с —</span>
+    </div>
+    <button class="btn-close-shift" onclick="confirmCloseShift()">🚪</button>
+  </header>
+
+  <!-- Полоска "нет связи" -->
+  <div id="conn-strip" class="conn-strip hidden">
+    ⚠️ Нет связи, переподключаюсь...
+  </div>
+
+  <!-- Список заказов / пустой экран -->
+  <main id="orders-area" class="orders-area">
+    <div id="empty-state" class="empty-state hidden">
+      <div class="empty-icon">☕</div>
+      <p class="empty-title">Пока заказов нет</p>
+      <div id="top-items" class="top-items"></div>
+      <div id="peak-hours" class="peak-info"></div>
+    </div>
+    <div id="orders-list" class="orders-list"></div>
+  </main>
+
+  <!-- Нижняя панель -->
+  <nav class="barista-nav">
+    <button class="nav-btn active" onclick="showMainTab('orders')" id="nav-orders">
+      <span>📋</span><span>Заказы</span>
+    </button>
+    <button class="nav-btn" onclick="showMainTab('search')" id="nav-search">
+      <span>🔍</span><span>Клиент</span>
+    </button>
+  </nav>
+</div>
+
+<!-- ── ПОИСК КЛИЕНТА ───────────────────────────────────── -->
+<div id="screen-search" class="screen hidden">
+  <header class="barista-header">
+    <button class="btn-back" onclick="showScreen('main')">← Назад</button>
+    <span class="header-name">Поиск клиента</span>
+  </header>
+
+  <div class="search-box">
+    <input type="text" id="search-input" placeholder="@username без @" autocomplete="off">
+    <button onclick="searchCustomer()">Найти</button>
+  </div>
+
+  <div id="search-result" class="search-result hidden">
+    <div class="customer-card">
+      <div class="customer-name" id="found-name">—</div>
+      <div class="customer-username" id="found-username">—</div>
+      <div class="cups-progress">
+        <span id="found-cups">0</span> кружек накоплено
+      </div>
+    </div>
+    <div class="payment-buttons">
+      <p class="payment-label">Способ оплаты:</p>
+      <div class="payment-row">
+        <button class="btn-payment" onclick="markCupDirect('cash')">💵 Наличкой</button>
+        <button class="btn-payment" onclick="markCupDirect('card')">💳 Картой</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="search-not-found" class="not-found hidden">
+    <p>❌ Клиент не найден</p>
+    <p class="muted">Попроси клиента написать боту или отсканировать QR-код на стойке</p>
+  </div>
+</div>
+
+<!-- ── МОДАЛ ЗАКРЫТИЯ СМЕНЫ ────────────────────────────── -->
+<div id="modal-shift" class="modal hidden">
+  <div class="modal-box">
+    <h3>Закрыть смену?</h3>
+    <div class="shift-summary">
+      <div class="shift-row"><span>Время</span><span id="shift-time">—</span></div>
+      <div class="shift-row"><span>Заказов</span><span id="shift-orders">—</span></div>
+      <div class="shift-row"><span>Наличными</span><span id="shift-cash">—</span></div>
+      <div class="shift-row"><span>Картой</span><span id="shift-card">—</span></div>
+      <div class="shift-row shift-total"><span>Итого</span><span id="shift-total">—</span></div>
+    </div>
+    <button onclick="closeShift()">Закрыть смену</button>
+    <button class="btn-ghost" onclick="closeModal()">Отмена</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Supabase CDN для Realtime -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="barista.js"></script>
+</body>
+</html>
