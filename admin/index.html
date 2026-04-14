@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adminка — Hot Black Coffee</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- ── ЭКРАН ВХОДА ─────────────────────────────────────────── -->
+<div id="screen-login" class="screen">
+  <div class="login-box">
+    <div class="login-logo">☕</div>
+    <h1>Hot Black Coffee</h1>
+    <p class="login-sub">Панель управления</p>
+    <form id="form-login">
+      <input type="password" id="input-password" placeholder="Пароль" autocomplete="current-password">
+      <button type="submit">Войти</button>
+      <p id="login-error" class="error hidden">Неверный пароль</p>
+    </form>
+  </div>
+</div>
+
+<!-- ── МАСТЕР ПЕРВОГО ЗАПУСКА ──────────────────────────────── -->
+<div id="screen-wizard" class="screen hidden">
+  <div class="wizard-box">
+    <div class="wizard-steps">
+      <span class="step active" data-step="1">1</span>
+      <span class="step-line"></span>
+      <span class="step" data-step="2">2</span>
+      <span class="step-line"></span>
+      <span class="step" data-step="3">3</span>
+      <span class="step-line"></span>
+      <span class="step" data-step="4">4</span>
+    </div>
+
+    <div class="wizard-step" id="wizard-1">
+      <h2>Добро пожаловать! 👋</h2>
+      <p>Давай настроим твою кофейню. Это займёт 5 минут.</p>
+      <label>Название кофейни
+        <input type="text" id="w-cafe-name" placeholder="Hot Black Coffee">
+      </label>
+      <label>Слоган (одна строка)
+        <input type="text" id="w-tagline" placeholder="Настоящий кофе в твоём городе">
+      </label>
+      <label>Адрес
+        <input type="text" id="w-address" placeholder="ул. Примерная, 1">
+      </label>
+      <button onclick="wizardNext(1)">Дальше →</button>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-2">
+      <h2>Меню ☕</h2>
+      <p>Меню уже загружено из файла — 12 позиций. Ты сможешь изменить его в разделе «Меню» после настройки.</p>
+      <button onclick="wizardNext(2)">Дальше →</button>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-3">
+      <h2>Добавь бариста 👤</h2>
+      <p>Бариста входит в систему по личному 4-значному PIN. Добавить ещё можно потом в Настройках.</p>
+      <label>Имя бариста
+        <input type="text" id="w-barista-name" placeholder="Маша">
+      </label>
+      <label>PIN (4 цифры)
+        <input type="text" id="w-barista-pin" placeholder="1234" maxlength="4" pattern="\d{4}">
+      </label>
+      <button onclick="wizardNext(3)">Дальше →</button>
+      <button class="btn-ghost" onclick="wizardNext(3)">Пропустить</button>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-4">
+      <h2>Telegram-бот 🤖</h2>
+      <p>Бот нужен чтобы получать уведомления о заказах и отправлять клиентам сообщения. Токен выдаёт @BotFather в Telegram.</p>
+      <label>Токен бота
+        <input type="text" id="w-bot-token" placeholder="123456:ABC...">
+      </label>
+      <label>Твой Telegram ID (для уведомлений о заказах)
+        <input type="text" id="w-manager-id" placeholder="Узнай у @userinfobot">
+      </label>
+      <button onclick="wizardFinish()">Готово ✓</button>
+      <button class="btn-ghost" onclick="wizardFinish()">Настрою позже</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ОСНОВНОЕ ПРИЛОЖЕНИЕ ─────────────────────────────────── -->
+<div id="screen-app" class="screen hidden">
+
+  <!-- Контент вкладок -->
+  <main id="main-content">
+
+    <!-- Вкладка 1: Дашборд -->
+    <section id="tab-dashboard" class="tab-content">
+      <h2 class="section-title">Дашборд</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Сегодня</div>
+          <div class="stat-value" id="stat-today-revenue">—</div>
+          <div class="stat-sub" id="stat-today-orders">— заказов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Неделя</div>
+          <div class="stat-value" id="stat-week-revenue">—</div>
+          <div class="stat-sub" id="stat-week-orders">— заказов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Месяц</div>
+          <div class="stat-value" id="stat-month-revenue">—</div>
+          <div class="stat-sub" id="stat-month-orders">— заказов</div>
+        </div>
+      </div>
+
+      <h3 class="section-subtitle">Последние заказы</h3>
+      <div id="orders-list" class="orders-list">
+        <div class="loading">Загрузка...</div>
+      </div>
+    </section>
+
+    <!-- Вкладка 2: Меню -->
+    <section id="tab-menu" class="tab-content hidden">
+      <div class="tab-inner-nav">
+        <button class="inner-tab active" onclick="showMenuTab('items')">Позиции</button>
+        <button class="inner-tab" onclick="showMenuTab('promos')">Акции</button>
+        <button class="btn-add" onclick="showAddItem()">+ Добавить</button>
+      </div>
+
+      <div id="menu-items-tab">
+        <div id="menu-list" class="menu-list">
+          <div class="loading">Загрузка...</div>
+        </div>
+      </div>
+
+      <div id="menu-promos-tab" class="hidden">
+        <p class="placeholder-text">Акции — доступно в шаге 8</p>
+      </div>
+
+      <!-- Форма добавления / редактирования позиции -->
+      <div id="item-form-overlay" class="overlay hidden">
+        <div class="overlay-box">
+          <h3 id="item-form-title">Новая позиция</h3>
+          <label>Категория
+            <select id="f-category">
+              <option>Кофе</option>
+              <option>Чай</option>
+              <option>Десерты</option>
+            </select>
+          </label>
+          <label>Название <input type="text" id="f-name" placeholder="Капучино"></label>
+          <label>Цена (руб.) <input type="number" id="f-price" placeholder="220"></label>
+          <label>Объём <input type="text" id="f-volume" placeholder="300 мл"></label>
+          <label>Описание <textarea id="f-description" rows="3"></textarea></label>
+          <label>Бейдж
+            <select id="f-badge">
+              <option value="">— нет —</option>
+              <option value="хит">хит</option>
+              <option value="новинка">новинка</option>
+            </select>
+          </label>
+          <label>Фото
+            <input type="file" id="f-photo" accept="image/*">
+            <img id="f-photo-preview" class="photo-preview hidden">
+          </label>
+          <div class="form-actions">
+            <button onclick="saveItem()">Сохранить</button>
+            <button class="btn-ghost" onclick="closeItemForm()">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Вкладка 3: Маркетинг -->
+    <section id="tab-marketing" class="tab-content hidden">
+      <h2 class="section-title">Маркетинг</h2>
+      <p class="placeholder-text">Рассылки и автосообщения — доступно в шаге 7</p>
+    </section>
+
+    <!-- Вкладка 4: Настройки -->
+    <section id="tab-settings" class="tab-content hidden">
+      <h2 class="section-title">Настройки</h2>
+
+      <div class="settings-block">
+        <h3>Кофейня</h3>
+        <label>Название <input type="text" id="s-cafe-name"></label>
+        <label>Слоган <input type="text" id="s-tagline"></label>
+        <label>Адрес <input type="text" id="s-address"></label>
+        <label>Логотип
+          <input type="file" id="s-logo" accept="image/*">
+          <img id="s-logo-preview" class="logo-preview hidden">
+        </label>
+        <button onclick="saveSettings()">Сохранить</button>
+      </div>
+
+      <div class="settings-block">
+        <h3>Telegram-бот</h3>
+        <label>Токен бота <input type="text" id="s-bot-token" placeholder="Введи новый токен чтобы сменить"></label>
+        <label>Твой Telegram ID <input type="text" id="s-manager-id"></label>
+        <button onclick="saveBotSettings()">Подключить</button>
+      </div>
+
+      <div class="settings-block">
+        <h3>Сотрудники</h3>
+        <div id="baristas-list"></div>
+        <button onclick="showAddBarista()">+ Добавить бариста</button>
+      </div>
+
+      <div class="settings-block">
+        <h3>Права бариста</h3>
+        <label class="toggle-label">
+          <span>Редактирование меню</span>
+          <input type="checkbox" id="s-barista-menu" onchange="saveBaristaSettings()">
+        </label>
+      </div>
+
+      <button class="btn-danger" onclick="logout()">Выйти</button>
+    </section>
+
+  </main>
+
+  <!-- Нижняя навигация -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" onclick="showTab('dashboard')" id="nav-dashboard">
+      <span class="nav-icon">📊</span>
+      <span>Дашборд</span>
+    </button>
+    <button class="nav-btn" onclick="showTab('menu')" id="nav-menu">
+      <span class="nav-icon">☕</span>
+      <span>Меню</span>
+    </button>
+    <button class="nav-btn" onclick="showTab('marketing')" id="nav-marketing">
+      <span class="nav-icon">📣</span>
+      <span>Маркетинг</span>
+    </button>
+    <button class="nav-btn" onclick="showTab('settings')" id="nav-settings">
+      <span class="nav-icon">⚙️</span>
+      <span>Настройки</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- Уведомление -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>

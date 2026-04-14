@@ -23,7 +23,7 @@ app.use('/barista', express.static(path.join(__dirname, '..', 'barista')))
 
 // Маршруты API
 app.use('/api', require('./routes/public'))
-// app.use('/api/admin', require('./routes/admin'))    // подключим на шаге 4
+app.use('/api/admin', require('./routes/admin'))
 // app.use('/api/barista', require('./routes/barista')) // подключим на шаге 5
 // app.use('/api', require('./routes/webhook'))         // подключим на шаге 6
 
