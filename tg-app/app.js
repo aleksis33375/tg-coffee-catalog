@@ -11,13 +11,28 @@ if (tg) {
   tg.expand(); // разворачиваем на весь экран сразу
 }
 
+// Адрес API — в продакшене заменить на адрес VPS (шаг 2)
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:3000/api'
+  : '/api';
+
+// Дефолтные стили карточек по категории (на случай если в БД нет поля)
+const CATEGORY_DEFAULTS = {
+  'Кофе':    { gradient: ['#5C3A21', '#C8813A'], emoji: '☕' },
+  'Чай':     { gradient: ['#2D5A3D', '#57B374'], emoji: '🫖' },
+  'Десерты': { gradient: ['#4A2060', '#9B59B6'], emoji: '🍰' },
+};
+const DEFAULT_GRADIENT = ['#333344', '#555566'];
+const DEFAULT_EMOJI    = '☕';
+
 // Состояние приложения — всё в одном объекте
 const state = {
-  menuData: null,          // загруженные данные из menu.json
+  menuData: null,           // загруженные данные из API
+  tgId: null,               // Telegram user ID (строка)
   currentCategory: 'Кофе', // активная категория
-  currentItem: null,       // выбранный товар (для экрана 2)
+  currentItem: null,        // выбранный товар (для экрана 2)
   currentScreen: 'catalog', // 'catalog' | 'detail' | 'confirm'
-  cart: []                 // [{id, qty}]
+  cart: []                  // [{id, qty}]
 };
 
 
@@ -27,14 +42,82 @@ const state = {
 
 async function loadMenu() {
   try {
-    const response = await fetch('data/menu.json');
-    if (!response.ok) throw new Error('Не удалось загрузить меню');
-    state.menuData = await response.json();
+    const res = await fetch(API_BASE + '/menu');
+    if (!res.ok) throw new Error('Ошибка сервера');
+    const { cafe, items } = await res.json();
+
+    // Строим список категорий из данных (сохраняем порядок первого появления)
+    const cats = [...new Set(items.map(i => i.category).filter(Boolean))];
+
+    // Нормализуем поля товаров под формат приложения
+    const normalizedItems = items.map(item => {
+      const def = CATEGORY_DEFAULTS[item.category] || {};
+
+      // gradient в Supabase может быть строкой JSON — парсим
+      let gradient = def.gradient || DEFAULT_GRADIENT;
+      if (Array.isArray(item.gradient)) {
+        gradient = item.gradient;
+      } else if (typeof item.gradient === 'string') {
+        try { gradient = JSON.parse(item.gradient); } catch {}
+      }
+
+      return {
+        ...item,
+        photo:    item.photo_url || null,
+        gradient,
+        emoji:    item.emoji || def.emoji || DEFAULT_EMOJI,
+      };
+    });
+
+    state.menuData = {
+      cafe: {
+        name:    cafe.cafe_name || 'Hot Black Coffee',
+        tagline: cafe.tagline   || '',
+        address: cafe.address   || '',
+      },
+      categories: [...cats, 'Акции'],
+      items: normalizedItems,
+      promos: getStaticPromos(),
+    };
+
+    await registerCustomer();
     initApp();
   } catch (err) {
     console.error('Ошибка загрузки меню:', err);
     showError('Не удалось загрузить меню. Попробуй перезапустить приложение.');
   }
+}
+
+// Статические промо (до шага 8 — реальные акции из БД)
+function getStaticPromos() {
+  return [{
+    type: 'loyalty_cups',
+    title: 'Кружка за кружкой',
+    description: 'Купи 6 напитков — получи 7-й в подарок',
+    totalCups: 6,
+    items: ['Капучино', 'Латте', 'Американо', 'Флэт уайт'],
+  }];
+}
+
+// Регистрация / обновление клиента при каждом заходе
+async function registerCustomer() {
+  const user = tg?.initDataUnsafe?.user;
+  if (!user?.id) return;
+
+  state.tgId = String(user.id);
+
+  try {
+    await fetch(API_BASE + '/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tg_id:      state.tgId,
+        first_name: user.first_name || '',
+        username:   user.username   || '',
+        source:     'mini_app',
+      }),
+    });
+  } catch {}
 }
 
 function showError(message) {
@@ -49,7 +132,7 @@ function showError(message) {
 
 /* ═══════════════════════════════════════════════════════
    ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ
-   Запускается после загрузки menu.json
+   Запускается после загрузки меню из API
    ═══════════════════════════════════════════════════════ */
 
 function initApp() {
@@ -719,7 +802,7 @@ function openDetail(itemId) {
   // MainButton — «← В меню»
   if (tg?.MainButton) {
     tg.MainButton.offClick(handleMainButton);
-    tg.MainButton.offClick(handleWriteToManager);
+    tg.MainButton.offClick(handleSubmitOrder);
     tg.MainButton.setText('← В меню');
     tg.MainButton.show();
     tg.MainButton.onClick(handleMainButton);
@@ -759,13 +842,13 @@ function openConfirm() {
   // Сбрасываем переключатель к «Самовывоз»
   initDeliveryToggle();
 
-  // MainButton — «Написать в Telegram»
+  // MainButton — «Оформить заказ»
   if (tg?.MainButton) {
     tg.MainButton.offClick(handleMainButton);
-    tg.MainButton.offClick(handleWriteToManager);
-    tg.MainButton.setText('Написать в Telegram');
+    tg.MainButton.offClick(handleSubmitOrder);
+    tg.MainButton.setText('Оформить заказ');
     tg.MainButton.show();
-    tg.MainButton.onClick(handleWriteToManager);
+    tg.MainButton.onClick(handleSubmitOrder);
   }
 
   if (tg?.BackButton) tg.BackButton.show();
@@ -797,38 +880,82 @@ function setDeliveryType(type) {
   document.getElementById('field-address').classList.toggle('hidden', type !== 'delivery');
 }
 
-function handleWriteToManager() {
+async function handleSubmitOrder() {
   if (cartCount() === 0) return;
 
-  // Haptic — подтверждение действия
   try { tg?.HapticFeedback?.notificationOccurred('success'); } catch {}
 
-  // Собираем позиции заказа
-  const lines = state.cart.map(entry => {
+  // Собираем позиции
+  const items = state.cart.map(entry => {
     const item = state.menuData.items.find(i => i.id === entry.id);
-    return item ? `• ${item.name} × ${entry.qty} = ${item.price * entry.qty} ₽` : '';
+    return item ? { id: item.id, name: item.name, price: item.price, qty: entry.qty } : null;
   }).filter(Boolean);
 
-  // Данные о доставке
+  // Данные доставки
   const isDelivery = document.querySelector('.delivery-tab[data-type="delivery"]')?.classList.contains('active');
-  const time    = document.getElementById('input-time')?.value;
-  const address = document.getElementById('input-address')?.value?.trim();
+  const time    = document.getElementById('input-time')?.value  || null;
+  const address = document.getElementById('input-address')?.value?.trim() || null;
 
-  const deliveryType = isDelivery ? '🚗 Доставка' : '🏠 Самовывоз';
-  let text = `Хочу сделать заказ:\n${lines.join('\n')}\nИтого: ${cartTotal()} ₽\nСпособ получения: ${deliveryType}`;
-  if (time)    text += `\nВремя: ${time}`;
-  if (address) text += `\nАдрес: ${address}`;
+  // Блокируем кнопку на время запроса
+  if (tg?.MainButton) { tg.MainButton.showProgress(); tg.MainButton.disable(); }
+  const browserBtn = document.querySelector('.browser-main-btn');
+  if (browserBtn) browserBtn.disabled = true;
 
-  const managerUsername = state.menuData.manager;
-  const url = `https://t.me/${managerUsername}?text=${encodeURIComponent(text)}`;
+  try {
+    const res = await fetch(API_BASE + '/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_tg_id: state.tgId || null,
+        items,
+        total:         cartTotal(),
+        delivery_type: isDelivery ? 'delivery' : 'pickup',
+        delivery_time: time,
+        comment:       address,
+      }),
+    });
 
-  // Открываем чат, очищаем корзину
-  clearCart();
-  if (tg?.openTelegramLink) {
-    tg.openTelegramLink(url);
-  } else {
-    window.open(url, '_blank');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
+
+    clearCart();
+    goBackToCatalog();
+    showOrderSuccess(data.order_id);
+  } catch (err) {
+    console.error('Ошибка заказа:', err);
+    try { tg?.HapticFeedback?.notificationOccurred('error'); } catch {}
+    alert('Не удалось отправить заказ. Попробуй ещё раз.');
+  } finally {
+    if (tg?.MainButton) { tg.MainButton.hideProgress(); tg.MainButton.enable(); }
+    if (browserBtn) browserBtn.disabled = false;
   }
+}
+
+function showOrderSuccess(orderId) {
+  // Инжектируем стиль тоста если ещё нет
+  if (!document.getElementById('order-toast-style')) {
+    const s = document.createElement('style');
+    s.id = 'order-toast-style';
+    s.textContent = `
+      .order-toast {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+        background: #27ae60; color: #fff; padding: 12px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 500; z-index: 9999; opacity: 0;
+        transition: opacity 0.3s, transform 0.3s; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      }
+      .order-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+    `;
+    document.head.appendChild(s);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'order-toast';
+  toast.textContent = orderId ? `✅ Заказ #${orderId} принят! Напишем когда будет готово.` : '✅ Заказ принят!';
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => { requestAnimationFrame(() => toast.classList.add('visible')); });
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 400);
+  }, 5000);
 }
 
 
@@ -853,7 +980,7 @@ function goBackToCatalog() {
   if (tg?.MainButton) {
     tg.MainButton.hide();
     tg.MainButton.offClick(handleMainButton);
-    tg.MainButton.offClick(handleWriteToManager);
+    tg.MainButton.offClick(handleSubmitOrder);
   }
   if (tg?.BackButton) tg.BackButton.hide();
 
@@ -963,8 +1090,8 @@ function injectBrowserControls() {
       // Cart bar — над синей кнопкой (высота browser-main-btn ~54px + зазор)
       if (cartBar) cartBar.style.setProperty('--cart-bar-bottom', '70px');
     } else if (screen === 'confirm') {
-      mainBtn.textContent = 'Написать в Telegram';
-      mainBtn.onclick = handleWriteToManager;
+      mainBtn.textContent = 'Оформить заказ';
+      mainBtn.onclick = handleSubmitOrder;
       mainBtn.classList.add('visible');
       // На confirm cart bar скрыт через renderCartBar — ничего не делаем
     } else {

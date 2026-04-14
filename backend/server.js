@@ -2,6 +2,7 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
+const { createBot } = require('./bot')
 
 const app = express()
 
@@ -44,5 +45,10 @@ async function loadSettings() {
 const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {
   await loadSettings()
+
+  // Запускаем Telegram-бота
+  const bot = createBot(process.env.BOT_TOKEN, process.env.MINI_APP_URL)
+  if (bot) app.locals.bot = bot
+
   console.log(`Сервер запущен на порту ${PORT}`)
 })
