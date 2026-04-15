@@ -573,6 +573,87 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
+// ── CSV-ЭКСПОРТ ───────────────────────────────────────────────────────────────
+
+function exportCustomersCSV() {
+  const url = '/api/admin/customers/export'
+  const a = document.createElement('a')
+  a.href = url
+  a.setAttribute('Authorization', 'Bearer ' + TOKEN) // не работает через href — используем fetch
+  // Fetch + blob download
+  fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } })
+    .then(r => {
+      if (!r.ok) throw new Error('Ошибка экспорта')
+      return r.blob()
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'customers.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    })
+    .catch(e => toast(e.message, true))
+}
+
+// ── QR-КОД ────────────────────────────────────────────────────────────────────
+
+function generateQR() {
+  const botUrl = 'https://t.me/Prototip_Coffee_house_bot?start=cup'
+  const container = document.getElementById('qr-container')
+  container.innerHTML = ''
+  const canvas = document.createElement('canvas')
+  canvas.style.borderRadius = '8px'
+  container.appendChild(canvas)
+
+  QRCode.toCanvas(canvas, botUrl, {
+    width: 200,
+    color: { dark: '#e8e8f0', light: '#1e1e32' }
+  }, err => {
+    if (err) toast('Ошибка QR: ' + err.message, true)
+  })
+}
+
+// ── ЛОГ БАРИСТЫ ───────────────────────────────────────────────────────────────
+
+const ACTION_LABELS = {
+  shift_closed:   'Смена закрыта',
+  status_changed: 'Статус заказа',
+  birthday_set:   'ДР установлен',
+  cup_added:      'Кружка ☕',
+  cups_reset:     'Кружки сброшены',
+}
+
+async function loadBaristaLog() {
+  const el = document.getElementById('barista-log-list')
+  el.innerHTML = '<div class="loading">Загрузка...</div>'
+  try {
+    const data = await api('GET', '/admin/barista-log?limit=30')
+    if (!data.length) { el.innerHTML = '<div class="loading">Действий пока нет</div>'; return }
+    el.innerHTML = data.map(row => {
+      const date = new Date(row.created_at).toLocaleString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+      const barista = row.barista_name || `#${row.barista_id}`
+      const action  = ACTION_LABELS[row.barista_action] || row.barista_action
+      const detail  = row.details ? ' · ' + formatLogDetail(row.barista_action, row.details) : ''
+      return `<div class="log-row">
+        <div class="log-row-action">${action}${detail}</div>
+        <div class="log-row-meta">${barista} · ${date}</div>
+      </div>`
+    }).join('')
+  } catch (e) { toast(e.message, true) }
+}
+
+function formatLogDetail(action, d) {
+  if (action === 'cup_added')      return `${d.cups_after}/${d.total_cups}`
+  if (action === 'status_changed') return d.status || ''
+  if (action === 'birthday_set')   return d.birthday || ''
+  if (action === 'shift_closed')   return `${d.orders_count} заказов`
+  return ''
+}
+
 // ── СТАРТ ─────────────────────────────────────────────────────────────────────
 
 if (TOKEN) {

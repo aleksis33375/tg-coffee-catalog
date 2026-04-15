@@ -179,9 +179,12 @@ function renderOrders(orders) {
     if (o.status === 'new') {
       buttons = `<button class="btn-accept" onclick="setStatus(${o.id},'preparing')">Принять</button>`
     } else if (o.status === 'preparing') {
+      const cupBtn = o.customer_tg_id
+        ? `<button class="btn-cup" onclick="addCupForOrder(${o.id},'${o.customer_tg_id}')">+1 ☕</button>`
+        : ''
       buttons = `
         <button class="btn-ready" onclick="setStatus(${o.id},'ready')">Готов ✓</button>
-        <button class="btn-cup" onclick="toast('Функция в шаге 8')">+1 ☕</button>`
+        ${cupBtn}`
     } else if (o.status === 'ready') {
       buttons = `<button class="btn-done" onclick="setStatus(${o.id},'done')">Выдан</button>`
     }
@@ -204,6 +207,20 @@ async function setStatus(id, status) {
     await api('PUT', `/barista/orders/${id}/status`, { status })
     await loadOrders()
     if (status === 'done') toast('Заказ выдан ✓')
+  } catch (e) { toast(e.message) }
+}
+
+async function addCupForOrder(orderId, customerTgId) {
+  try {
+    const { progress, total, reward } = await api('POST', '/barista/customers/cups', {
+      customer_tg_id: String(customerTgId),
+      order_id: orderId
+    })
+    if (reward) {
+      toast(`🎉 ${progress}/${total} кружек — клиенту отправлено поздравление!`)
+    } else {
+      toast(`☕ Кружка засчитана: ${progress}/${total}`)
+    }
   } catch (e) { toast(e.message) }
 }
 
@@ -330,8 +347,19 @@ async function searchCustomer() {
 
 async function markCupDirect(payment) {
   if (!foundCustomerTgId) return
-  toast(`Оплата ${payment === 'cash' ? 'наличными' : 'картой'} зафиксирована`)
-  // Акции — шаг 8
+  try {
+    const { progress, total, reward } = await api('POST', '/barista/customers/cups', {
+      customer_tg_id: String(foundCustomerTgId)
+    })
+    const payLabel = payment === 'cash' ? 'наличными' : 'картой'
+    if (reward) {
+      toast(`🎉 Оплата ${payLabel}. ${progress}/${total} кружек — поздравление отправлено!`)
+    } else {
+      toast(`☕ Оплата ${payLabel}. Кружка засчитана: ${progress}/${total}`)
+    }
+    // Обновляем счётчик на экране
+    document.getElementById('found-cups').textContent = progress
+  } catch (e) { toast(e.message) }
 }
 
 // ── СТАРТ ─────────────────────────────────────────────────────────────────────

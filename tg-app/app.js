@@ -29,6 +29,8 @@ const DEFAULT_EMOJI    = '☕';
 const state = {
   menuData: null,           // загруженные данные из API
   tgId: null,               // Telegram user ID (строка)
+  cupsProgress: 0,          // кружек накоплено (из БД)
+  cupsPromoId: null,        // id акции loyalty_cups
   currentCategory: 'Кофе', // активная категория
   currentItem: null,        // выбранный товар (для экрана 2)
   currentScreen: 'catalog', // 'catalog' | 'detail' | 'confirm'
@@ -69,6 +71,9 @@ async function loadMenu() {
       };
     });
 
+    const staticPromos = getStaticPromos();
+    state.cupsPromoId = 1; // promo_id акции loyalty_cups в БД
+
     state.menuData = {
       cafe: {
         name:    cafe.cafe_name || 'Hot Black Coffee',
@@ -77,10 +82,11 @@ async function loadMenu() {
       },
       categories: [...cats, 'Акции'],
       items: normalizedItems,
-      promos: getStaticPromos(),
+      promos: staticPromos,
     };
 
     await registerCustomer();
+    await refreshCupsFromApi();
     initApp();
   } catch (err) {
     console.error('Ошибка загрузки меню:', err);
@@ -450,11 +456,7 @@ function renderPromos(container) {
     return '';
   }).join('');
 
-  // Навешиваем обработчики на кнопки кружек (onclick — не накапливается при перерисовке)
-  const btnAdd   = container.querySelector('.btn-cup-add');
-  const btnReset = container.querySelector('.btn-cup-reset');
-  if (btnAdd)   btnAdd.onclick = addCup;
-  if (btnReset) btnReset.onclick = resetCups;
+  // Кнопки кружек используют inline onclick — обработчики не нужны
 
   requestAnimationFrame(() => {
     container.style.opacity = '1';
@@ -511,11 +513,6 @@ function renderPromoCups(promo) {
       ? '🎁 Твоя 6-я кружка бесплатна — отметь её!'
       : `Осталось ${remaining} ${declension} до бесплатной`;
 
-  const btnDisabled = isFree ? 'disabled style="opacity:0.5"' : '';
-  const btnText     = isFree       ? '✓ Готово'
-                    : readyForFree ? '🎁 Отметить бесплатную'
-                    :                '☕ Отметить кружку';
-
   return `
     <div class="promo-card">
       <div class="promo-cups-body">
@@ -525,46 +522,40 @@ function renderPromoCups(promo) {
 
         <div class="cups-row">${cupsHTML}</div>
 
-        <div class="cups-action">
-          <button class="btn-cup-add" ${btnDisabled}>${btnText}</button>
-          <button class="btn-cup-reset" title="Сбросить">↺</button>
-        </div>
-
         <div class="cups-status ${isFree || readyForFree ? 'ready' : ''}">${statusText}</div>
 
-        <p class="promo-items-hint">Участвуют: ${promo.items.join(', ')}</p>
+        ${state.tgId
+          ? `<div class="cups-action">
+               <button class="btn-cup-add" onclick="refreshCupsFromApi()">↻ Обновить</button>
+             </div>
+             <p class="promo-items-hint">Бариста начислит кружку при заказе</p>`
+          : `<p class="promo-items-hint">Открой через Telegram чтобы видеть прогресс</p>`
+        }
       </div>
     </div>`;
 }
 
-/* ── Логика счётчика кружек (хранится в localStorage) ── */
-
-const CUPS_KEY = 'hotblack_cups_count';
+/* ── Счётчик кружек — загружается из API ── */
 
 function getCupsCount() {
-  return parseInt(localStorage.getItem(CUPS_KEY) || '0', 10);
+  return state.cupsProgress || 0;
 }
 
-function addCup() {
-  const count = getCupsCount();
-  const total = state.menuData.promos.find(p => p.type === 'loyalty_cups')?.totalCups || 6;
-
-  if (count >= total) return; // все 6 кружек отмечены — ждём сброса
-
-  tg?.HapticFeedback?.impactOccurred('medium');
-  localStorage.setItem(CUPS_KEY, count + 1);
-
-  // Перерисовываем промо
-  const container = document.getElementById('catalog-grid');
-  renderPromos(container);
-}
-
-function resetCups() {
-  if (confirm('Сбросить счётчик кружек?')) {
-    try { tg?.HapticFeedback?.impactOccurred('light'); } catch {}
-    localStorage.setItem(CUPS_KEY, '0');
-    renderPromos(document.getElementById('catalog-grid'));
-  }
+async function refreshCupsFromApi() {
+  if (!state.tgId) return;
+  try {
+    const { progress } = await fetch(API_BASE + '/customers/' + state.tgId)
+      .then(r => r.json())
+      .then(d => {
+        const cups = (d.progress || []).find(p => p.promo_id === state.cupsPromoId);
+        return { progress: cups?.progress || 0 };
+      });
+    state.cupsProgress = progress;
+    // Перерисовываем если вкладка Акции открыта
+    if (state.currentCategory === 'Акции') {
+      renderPromos(document.getElementById('catalog-grid'));
+    }
+  } catch {}
 }
 
 

@@ -43,9 +43,22 @@ async function loadSettings() {
   }
 }
 
+// Создать базовые акции если их ещё нет
+async function seedPromos() {
+  const { data } = await supabase.from('promos').select('id').limit(1)
+  if (data?.length) return // уже есть
+
+  await supabase.from('promos').insert([
+    { name: 'Кружка за кружкой', type: 'loyalty_cups',    config: { total_cups: 6 }, active: true },
+    { name: 'Скидка на первый',  type: 'discount_first',  config: { percent: 10 },   active: true },
+  ])
+  console.log('✅ Базовые акции созданы')
+}
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {
   await loadSettings()
+  await seedPromos()
 
   // Запускаем Telegram-бота и cron
   const bot = createBot(process.env.BOT_TOKEN, process.env.MINI_APP_URL)

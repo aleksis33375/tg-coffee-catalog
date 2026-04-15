@@ -291,4 +291,100 @@ router.put('/customers/:tg_id/birthday', auth('barista'), async (req, res) => {
   res.json(data)
 })
 
+// ─── КРУЖКИ ЛОЯЛЬНОСТИ ───────────────────────────────────────────────────────
+
+// POST /api/barista/customers/cups — зачислить кружку клиенту
+router.post('/customers/cups', auth('barista'), async (req, res) => {
+  const { customer_tg_id, order_id } = req.body
+  if (!customer_tg_id) return res.status(400).json({ error: 'customer_tg_id обязателен' })
+
+  // Найти активную акцию лояльности
+  const { data: promo } = await supabase
+    .from('promos')
+    .select('id, config')
+    .eq('type', 'loyalty_cups')
+    .eq('active', true)
+    .single()
+
+  const promoId   = promo?.id   || 1
+  const totalCups = promo?.config?.total_cups || 6
+
+  // Получить или создать прогресс
+  const { data: existing } = await supabase
+    .from('customer_promo_progress')
+    .select('progress')
+    .eq('customer_tg_id', customer_tg_id)
+    .eq('promo_id', promoId)
+    .single()
+
+  const current     = existing?.progress || 0
+  const newProgress = current + 1
+
+  await supabase
+    .from('customer_promo_progress')
+    .upsert({
+      customer_tg_id,
+      promo_id:   promoId,
+      progress:   newProgress,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'customer_tg_id,promo_id' })
+
+  // Лог действия бариста
+  await supabase.from('barista_log').insert({
+    barista_id:     req.user.barista_id,
+    barista_action: 'cup_added',
+    customer_tg_id,
+    order_id:       order_id || null,
+    details:        { cups_before: current, cups_after: newProgress, total_cups: totalCups }
+  })
+
+  // Уведомление клиенту
+  const bot = req.app.locals.bot
+  if (bot) {
+    if (newProgress >= totalCups) {
+      // Набрали нужное количество — бесплатный напиток!
+      bot.sendMessage(
+        customer_tg_id,
+        `🎉 Поздравляем! Ты накопил ${totalCups} кружек — следующий напиток бесплатно!\n\nПокажи это сообщение баристе ☕`
+      ).catch(() => {})
+    } else {
+      bot.sendMessage(
+        customer_tg_id,
+        `☕ Кружка засчитана! У тебя ${newProgress} из ${totalCups}.\n\nЕщё ${totalCups - newProgress} — и следующий напиток бесплатно 🎁`
+      ).catch(() => {})
+    }
+  }
+
+  res.json({ progress: newProgress, total: totalCups, reward: newProgress >= totalCups })
+})
+
+// POST /api/barista/customers/cups/reset — сброс после выдачи бесплатной кружки
+router.post('/customers/cups/reset', auth('barista'), async (req, res) => {
+  const { customer_tg_id } = req.body
+  if (!customer_tg_id) return res.status(400).json({ error: 'customer_tg_id обязателен' })
+
+  const { data: promo } = await supabase
+    .from('promos')
+    .select('id')
+    .eq('type', 'loyalty_cups')
+    .eq('active', true)
+    .single()
+
+  const promoId = promo?.id || 1
+
+  await supabase
+    .from('customer_promo_progress')
+    .upsert({ customer_tg_id, promo_id: promoId, progress: 0, updated_at: new Date().toISOString() },
+      { onConflict: 'customer_tg_id,promo_id' })
+
+  await supabase.from('barista_log').insert({
+    barista_id:     req.user.barista_id,
+    barista_action: 'cups_reset',
+    customer_tg_id,
+    details:        { reason: 'free_drink_issued' }
+  })
+
+  res.json({ ok: true })
+})
+
 module.exports = router

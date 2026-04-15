@@ -319,6 +319,62 @@ router.put('/setup/complete', auth('admin'), async (req, res) => {
   res.json({ ok: true })
 })
 
+// GET /api/admin/customers/export — CSV-экспорт клиентской базы
+router.get('/customers/export', auth('admin'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('customers')
+    .select('tg_id, first_name, username, status, source, vip, birthday, last_seen, created_at')
+    .order('created_at', { ascending: false })
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  const header = ['tg_id', 'Имя', 'Username', 'Статус', 'Источник', 'VIP', 'ДР', 'Последний визит', 'Дата регистрации']
+  const rows = (data || []).map(c => [
+    c.tg_id,
+    c.first_name || '',
+    c.username   ? '@' + c.username : '',
+    c.status     || '',
+    c.source     || '',
+    c.vip        ? 'да' : 'нет',
+    c.birthday   || '',
+    c.last_seen  ? new Date(c.last_seen).toLocaleDateString('ru')  : '',
+    c.created_at ? new Date(c.created_at).toLocaleDateString('ru') : ''
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+
+  const csv = '\uFEFF' + [header.join(','), ...rows].join('\r\n') // BOM для Excel
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="customers_${new Date().toISOString().slice(0,10)}.csv"`)
+  res.send(csv)
+})
+
+// GET /api/admin/barista-log — история действий баристы
+router.get('/barista-log', auth('admin'), async (req, res) => {
+  const { limit = 50 } = req.query
+
+  const { data, error } = await supabase
+    .from('barista_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(Number(limit))
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  // Подтягиваем имена баристы отдельным запросом
+  if (data?.length) {
+    const ids = [...new Set(data.map(r => r.barista_id).filter(Boolean))]
+    const { data: baristas } = await supabase
+      .from('baristas')
+      .select('id, name')
+      .in('id', ids)
+    const nameMap = {}
+    baristas?.forEach(b => { nameMap[b.id] = b.name })
+    data.forEach(r => { r.barista_name = nameMap[r.barista_id] || null })
+  }
+
+  res.json(data || [])
+})
+
 // ─── АНАЛИТИКА ───────────────────────────────────────────────────────────────
 
 // GET /api/admin/analytics/chart?period=7|30
