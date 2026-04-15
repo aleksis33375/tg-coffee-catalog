@@ -20,9 +20,10 @@ app.use(cors({
 app.use(express.json())
 
 // Статика: Mini App, adminка и интерфейс бариста
+const staticOpts = { maxAge: '7d' }
 app.use('/admin',   express.static(path.join(__dirname, '..', 'admin')))
 app.use('/barista', express.static(path.join(__dirname, '..', 'barista')))
-app.use('/',        express.static(path.join(__dirname, '..', 'tg-app')))
+app.use('/',        express.static(path.join(__dirname, '..', 'tg-app'), staticOpts))
 
 // Маршруты API
 app.use('/api', require('./routes/public'))
