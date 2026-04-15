@@ -41,6 +41,7 @@ function showTab(name) {
   if (name === 'dashboard') loadDashboard()
   if (name === 'menu')      loadMenu()
   if (name === 'settings')  loadSettings()
+  if (name === 'marketing') loadMarketing()
 }
 
 // ── ВХОД ─────────────────────────────────────────────────────────────────────
@@ -135,10 +136,101 @@ async function loadDashboard() {
     document.getElementById('stat-month-orders').textContent = stats.month.orders + ' заказов'
   } catch {}
 
+  loadChart(7)
+  loadTopItems()
+
   try {
     const orders = await api('GET', '/admin/orders?limit=20')
     renderOrders(orders)
   } catch {}
+}
+
+// ── ГРАФИК ────────────────────────────────────────────────────────────────────
+
+let revenueChart = null
+
+async function loadChart(period) {
+  try {
+    const data = await api('GET', `/admin/analytics/chart?period=${period}`)
+    renderChart(data)
+  } catch {}
+}
+
+function setChartPeriod(period, btn) {
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  loadChart(period)
+}
+
+function renderChart(data) {
+  const ctx = document.getElementById('revenue-chart')
+  if (!ctx) return
+
+  const labels  = data.map(d => {
+    const dt = new Date(d.date + 'T12:00:00')
+    return dt.toLocaleDateString('ru', { day: 'numeric', month: 'short' })
+  })
+  const revenue = data.map(d => d.revenue)
+
+  if (revenueChart) revenueChart.destroy()
+
+  revenueChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Выручка, ₽',
+        data: revenue,
+        backgroundColor: 'rgba(201,112,112,0.7)',
+        borderColor: '#c97070',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toLocaleString('ru') + ' ₽'
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#8888aa', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: {
+          ticks: { color: '#8888aa', font: { size: 11 }, callback: v => v.toLocaleString('ru') },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          beginAtZero: true
+        }
+      }
+    }
+  })
+}
+
+// ── ТОП ТОВАРОВ ───────────────────────────────────────────────────────────────
+
+async function loadTopItems() {
+  try {
+    const items = await api('GET', '/admin/analytics/top-items?period=30')
+    renderTopItems(items)
+  } catch {}
+}
+
+function renderTopItems(items) {
+  const el = document.getElementById('top-items-list')
+  if (!items.length) { el.innerHTML = '<div class="loading">Данных пока нет</div>'; return }
+  const max = items[0].count
+  el.innerHTML = items.map((item, i) => `
+    <div class="top-item-row">
+      <span class="top-item-rank">${i + 1}</span>
+      <span class="top-item-name">${item.name}</span>
+      <div class="top-item-bar-wrap">
+        <div class="top-item-bar" style="width:${Math.round(item.count / max * 100)}%"></div>
+      </div>
+      <span class="top-item-count">${item.count} шт</span>
+    </div>`).join('')
 }
 
 const STATUS_LABELS = { new: 'Новый', preparing: 'Готовится', ready: 'Готов', done: 'Выдан' }
@@ -413,6 +505,72 @@ async function toggleBarista(id, active) {
     toast(active ? 'Доступ восстановлен' : 'Доступ закрыт')
     loadBaristas()
   } catch (e) { toast(e.message, true) }
+}
+
+// ── МАРКЕТИНГ ─────────────────────────────────────────────────────────────────
+
+async function loadMarketing() {
+  loadBroadcastHistory()
+
+  // Счётчик символов в поле сообщения
+  const msg = document.getElementById('bc-message')
+  const counter = document.getElementById('bc-counter')
+  if (msg && counter) {
+    msg.oninput = () => {
+      const len = msg.value.length
+      counter.textContent = len ? `${len} символов` : ''
+    }
+  }
+}
+
+async function sendBroadcast() {
+  const message = document.getElementById('bc-message').value.trim()
+  const target  = document.getElementById('bc-target').value
+
+  if (!message) { toast('Введи текст сообщения', true); return }
+
+  const btn = document.getElementById('bc-send-btn')
+  btn.disabled = true
+  btn.textContent = 'Отправка...'
+
+  try {
+    const { sent, total } = await api('POST', '/admin/broadcast', { message, target })
+    toast(`Отправлено ${sent} из ${total} клиентов`)
+    document.getElementById('bc-message').value = ''
+    document.getElementById('bc-counter').textContent = ''
+    loadBroadcastHistory()
+  } catch (e) {
+    toast(e.message, true)
+  } finally {
+    btn.disabled = false
+    btn.textContent = '📣 Отправить'
+  }
+}
+
+async function loadBroadcastHistory() {
+  try {
+    const list = await api('GET', '/admin/broadcasts')
+    renderBroadcastHistory(list)
+  } catch {}
+}
+
+const TARGET_LABELS = { all: 'Все', buyers: 'Покупатели', inactive: 'Неактивные' }
+
+function renderBroadcastHistory(list) {
+  const el = document.getElementById('broadcasts-list')
+  if (!list.length) { el.innerHTML = '<div class="loading">Рассылок ещё не было</div>'; return }
+  el.innerHTML = list.map(b => {
+    const date = new Date(b.created_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    const segment = TARGET_LABELS[b.segment] || b.segment
+    return `<div class="broadcast-row">
+      <div class="broadcast-row-msg">${escapeHtml(b.text || '')}</div>
+      <div class="broadcast-row-meta">${date} · ${segment} · ${b.sent_to ?? 0} получателей</div>
+    </div>`
+  }).join('')
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
 // ── СТАРТ ─────────────────────────────────────────────────────────────────────

@@ -111,6 +111,26 @@
         </div>
       </div>
 
+      <!-- График выручки -->
+      <div class="chart-block">
+        <div class="chart-header">
+          <h3 class="section-subtitle" style="margin:0">Выручка</h3>
+          <div class="chart-period-btns">
+            <button class="period-btn active" onclick="setChartPeriod(7,this)">7 дней</button>
+            <button class="period-btn" onclick="setChartPeriod(30,this)">30 дней</button>
+          </div>
+        </div>
+        <canvas id="revenue-chart" height="180"></canvas>
+      </div>
+
+      <!-- Топ товаров -->
+      <div class="top-items-block">
+        <h3 class="section-subtitle">Топ позиций за месяц</h3>
+        <div id="top-items-list" class="top-items-list">
+          <div class="loading">Загрузка...</div>
+        </div>
+      </div>
+
       <h3 class="section-subtitle">Последние заказы</h3>
       <div id="orders-list" class="orders-list">
         <div class="loading">Загрузка...</div>
@@ -172,7 +192,52 @@
     <!-- Вкладка 3: Маркетинг -->
     <section id="tab-marketing" class="tab-content hidden">
       <h2 class="section-title">Маркетинг</h2>
-      <p class="placeholder-text">Рассылки и автосообщения — доступно в шаге 7</p>
+
+      <!-- Форма рассылки -->
+      <div class="settings-block">
+        <h3>Отправить рассылку</h3>
+        <label>Кому
+          <select id="bc-target">
+            <option value="all">Все клиенты</option>
+            <option value="buyers">Только покупатели</option>
+            <option value="inactive">Неактивные 14+ дней</option>
+          </select>
+        </label>
+        <label>Текст сообщения
+          <textarea id="bc-message" rows="4" placeholder="Текст который получат клиенты в боте..."></textarea>
+        </label>
+        <div id="bc-counter" class="bc-counter"></div>
+        <button id="bc-send-btn" onclick="sendBroadcast()">📣 Отправить</button>
+      </div>
+
+      <!-- Автоматические сообщения -->
+      <div class="settings-block">
+        <h3>Автосообщения</h3>
+        <div class="auto-msg-row">
+          <span class="auto-msg-icon">🎂</span>
+          <div>
+            <div class="auto-msg-title">День рождения</div>
+            <div class="auto-msg-desc">Скидка 10% клиентам у кого сегодня ДР — отправляется в 9:00</div>
+          </div>
+          <span class="auto-msg-status on">Вкл</span>
+        </div>
+        <div class="auto-msg-row">
+          <span class="auto-msg-icon">💤</span>
+          <div>
+            <div class="auto-msg-title">Реактивация</div>
+            <div class="auto-msg-desc">Напоминание клиентам без заказов 14+ дней — каждый понедельник</div>
+          </div>
+          <span class="auto-msg-status on">Вкл</span>
+        </div>
+      </div>
+
+      <!-- История рассылок -->
+      <div class="settings-block">
+        <h3>История рассылок</h3>
+        <div id="broadcasts-list" class="broadcasts-list">
+          <div class="loading">Загрузка...</div>
+        </div>
+      </div>
     </section>
 
     <!-- Вкладка 4: Настройки -->
@@ -242,6 +307,7 @@
 <!-- Уведомление -->
 <div id="toast" class="toast hidden"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>

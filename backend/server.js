@@ -2,7 +2,8 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
-const { createBot } = require('./bot')
+const { createBot }  = require('./bot')
+const { startCron }  = require('./cron')
 
 const app = express()
 
@@ -46,9 +47,12 @@ const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {
   await loadSettings()
 
-  // Запускаем Telegram-бота
+  // Запускаем Telegram-бота и cron
   const bot = createBot(process.env.BOT_TOKEN, process.env.MINI_APP_URL)
-  if (bot) app.locals.bot = bot
+  if (bot) {
+    app.locals.bot = bot
+    startCron(bot)
+  }
 
   console.log(`Сервер запущен на порту ${PORT}`)
 })

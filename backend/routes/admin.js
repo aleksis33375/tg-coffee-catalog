@@ -319,4 +319,98 @@ router.put('/setup/complete', auth('admin'), async (req, res) => {
   res.json({ ok: true })
 })
 
+// ─── АНАЛИТИКА ───────────────────────────────────────────────────────────────
+
+// GET /api/admin/analytics/chart?period=7|30
+router.get('/analytics/chart', auth('admin'), async (req, res) => {
+  const period = Math.min(parseInt(req.query.period) || 7, 90)
+  const since  = new Date(Date.now() - period * 86400000).toISOString()
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('created_at, total')
+    .gte('created_at', since)
+    .eq('status', 'done')
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  // Группируем по дате
+  const byDate = {}
+  ;(data || []).forEach(o => {
+    const date = o.created_at.slice(0, 10)
+    if (!byDate[date]) byDate[date] = { revenue: 0, orders: 0 }
+    byDate[date].revenue += o.total || 0
+    byDate[date].orders++
+  })
+
+  // Заполняем все дни периода (без пропусков)
+  const result = []
+  for (let i = period - 1; i >= 0; i--) {
+    const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+    result.push({ date, ...(byDate[date] || { revenue: 0, orders: 0 }) })
+  }
+
+  res.json(result)
+})
+
+// GET /api/admin/analytics/top-items?period=30
+router.get('/analytics/top-items', auth('admin'), async (req, res) => {
+  const period = Math.min(parseInt(req.query.period) || 30, 365)
+  const since  = new Date(Date.now() - period * 86400000).toISOString()
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('items')
+    .gte('created_at', since)
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  const counts = {}
+  ;(data || []).forEach(o => {
+    if (!Array.isArray(o.items)) return
+    o.items.forEach(i => { counts[i.name] = (counts[i.name] || 0) + (i.qty || 1) })
+  })
+
+  const top = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }))
+
+  res.json(top)
+})
+
+// ─── РАССЫЛКИ ────────────────────────────────────────────────────────────────
+
+// GET /api/admin/broadcasts — история
+router.get('/broadcasts', auth('admin'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('broadcasts')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json(data || [])
+})
+
+// POST /api/admin/broadcast — отправить рассылку
+router.post('/broadcast', auth('admin'), async (req, res) => {
+  const { message, target } = req.body
+  if (!message?.trim()) return res.status(400).json({ error: 'Текст сообщения обязателен' })
+
+  const bot = req.app.locals.bot
+  if (!bot) return res.status(503).json({ error: 'Бот не запущен' })
+
+  const { sendBroadcast } = require('../cron')
+  const { sent, total } = await sendBroadcast(bot, message.trim(), target || 'all')
+
+  await supabase.from('broadcasts').insert({
+    text:     message.trim(),
+    segment:  target || 'all',
+    sent_to:  sent,
+    sent:     true
+  })
+
+  res.json({ sent, total })
+})
+
 module.exports = router
