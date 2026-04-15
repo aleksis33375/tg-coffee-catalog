@@ -19,9 +19,10 @@ app.use(cors({
 
 app.use(express.json())
 
-// Статика: adminка и интерфейс бариста
-app.use('/admin', express.static(path.join(__dirname, '..', 'admin')))
+// Статика: Mini App, adminка и интерфейс бариста
+app.use('/admin',   express.static(path.join(__dirname, '..', 'admin')))
 app.use('/barista', express.static(path.join(__dirname, '..', 'barista')))
+app.use('/',        express.static(path.join(__dirname, '..', 'tg-app')))
 
 // Маршруты API
 app.use('/api', require('./routes/public'))
