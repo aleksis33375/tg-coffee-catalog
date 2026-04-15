@@ -6,3 +6,4 @@ scraper/debug.png
 # Секреты — никогда не коммитить
 .env
 .env.local
+authorized_keys
