@@ -295,7 +295,7 @@ router.put('/customers/:tg_id/birthday', auth('barista'), async (req, res) => {
 
 // POST /api/barista/customers/cups — зачислить кружку клиенту
 router.post('/customers/cups', auth('barista'), async (req, res) => {
-  const { customer_tg_id, order_id } = req.body
+  const { customer_tg_id, order_id, payment } = req.body
   if (!customer_tg_id) return res.status(400).json({ error: 'customer_tg_id обязателен' })
 
   // Найти активную акцию лояльности
@@ -335,7 +335,7 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
     barista_action: 'cup_added',
     customer_tg_id,
     order_id:       order_id || null,
-    details:        { cups_before: current, cups_after: newProgress, total_cups: totalCups }
+    details:        { cups_before: current, cups_after: newProgress, total_cups: totalCups, payment: payment || null }
   })
 
   // Уведомление клиенту
