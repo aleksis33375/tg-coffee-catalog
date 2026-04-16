@@ -295,7 +295,7 @@ async function loadEmptyState() {
   try {
     const { peak } = await api('GET', '/barista/analytics/peak-hours')
     document.getElementById('peak-hours').innerHTML =
-      `Пик заказов: <strong>${peak}</strong>`
+      `Пик заказов за месяц: <strong>${peak}</strong>`
   } catch {}
 }
 
@@ -412,12 +412,13 @@ async function markCupDirect(payment) {
       payment
     })
     const payLabel = payment === 'cash' ? 'наличными' : 'картой'
+    const customerName = document.getElementById('found-name').textContent || ''
     document.getElementById('found-cups').textContent = progress
     if (reward) {
       pendingRewardTgId = String(foundCustomerTgId)
       document.getElementById('modal-reward').classList.remove('hidden')
     } else {
-      toast(`☕ Оплата ${payLabel}. Кружка засчитана: ${progress}/${total}`)
+      toast(`☕ ${customerName} — ${payLabel}. Кружка: ${progress}/${total}`)
     }
   } catch (e) { toast(e.message) }
   finally { isRequesting = false }

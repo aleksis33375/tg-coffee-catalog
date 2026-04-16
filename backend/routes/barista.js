@@ -170,7 +170,7 @@ router.post('/shift/close', auth('barista'), async (req, res) => {
     details: { orders_count, total_cash, total_card, walkin_cash, walkin_card }
   })
 
-  res.json({ shift: data, orders_count, total_cash, total_card })
+  res.json({ shift: data, orders_count, total_cash, total_card, walkin_cash, walkin_card })
 })
 
 // ─── ЗАКАЗЫ ──────────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ router.put('/orders/:id/status', auth('barista'), async (req, res) => {
     req.app.locals.bot.sendMessage(
       data.customer_tg_id,
       '✅ Ваш заказ готов! Можно забирать.'
-    ).catch(() => {})
+    ).catch(e => console.error('bot notify ready:', data.customer_tg_id, e.message))
   }
 
   await supabase.from('barista_log').insert({
@@ -272,7 +272,7 @@ router.get('/analytics/peak-hours', auth('barista'), async (req, res) => {
     ? `с ${sorted[0]}:00 до ${sorted[sorted.length - 1] + 1}:00`
     : sorted.length === 1 ? `в ${sorted[0]}:00` : 'данных пока нет'
 
-  res.json({ peak, hours: Object.entries(hours).map(([h, c]) => ({ hour: Number(h), count: c })) })
+  res.json({ peak })
 })
 
 // ─── ПОИСК КЛИЕНТА ───────────────────────────────────────────────────────────
@@ -407,12 +407,12 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
       bot.sendMessage(
         customer_tg_id,
         `🎉 Поздравляем! Ты накопил ${totalCups} кружек — следующий напиток бесплатно!\n\nПокажи это сообщение баристе ☕`
-      ).catch(() => {})
-    } else {
+      ).catch(e => console.error('bot notify reward:', customer_tg_id, e.message))
+    } else if (newProgress < totalCups) {
       bot.sendMessage(
         customer_tg_id,
         `☕ Кружка засчитана! У тебя ${newProgress} из ${totalCups}.\n\nЕщё ${totalCups - newProgress} — и следующий напиток бесплатно 🎁`
-      ).catch(() => {})
+      ).catch(e => console.error('bot notify cups:', customer_tg_id, e.message))
     }
   }
 

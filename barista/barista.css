@@ -393,7 +393,8 @@ body {
   font-size: 1rem;
 }
 .shift-row:last-child { border-bottom: none; }
-.shift-total { font-weight: 700; font-size: 1.1rem; color: var(--gold); }
+.shift-total { font-weight: 700; font-size: 1.1rem; color: var(--gold); border-bottom: none; }
+.shift-walkin { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--border); }
 
 .modal-box button {
   display: block;
