@@ -309,25 +309,43 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
   const promoId   = promo?.id   || 1
   const totalCups = promo?.config?.total_cups || 6
 
-  // Получить или создать прогресс
-  const { data: existing } = await supabase
-    .from('customer_promo_progress')
-    .select('progress')
-    .eq('customer_tg_id', customer_tg_id)
-    .eq('promo_id', promoId)
-    .single()
+  // Атомарный инкремент через оптимистичную блокировку (защита от гонки)
+  // Читаем текущее значение → обновляем только если оно не изменилось → повторяем при конфликте
+  let current = 0
+  let newProgress = 1
+  const MAX_RETRIES = 5
 
-  const current     = existing?.progress || 0
-  const newProgress = current + 1
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const { data: existing } = await supabase
+      .from('customer_promo_progress')
+      .select('progress')
+      .eq('customer_tg_id', customer_tg_id)
+      .eq('promo_id', promoId)
+      .maybeSingle()
 
-  await supabase
-    .from('customer_promo_progress')
-    .upsert({
-      customer_tg_id,
-      promo_id:   promoId,
-      progress:   newProgress,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'customer_tg_id,promo_id' })
+    current = existing?.progress ?? 0
+    newProgress = current + 1
+
+    if (!existing) {
+      // Первая кружка — вставляем новую запись
+      const { error } = await supabase
+        .from('customer_promo_progress')
+        .insert({ customer_tg_id, promo_id: promoId, progress: 1, updated_at: new Date().toISOString() })
+      if (!error) { newProgress = 1; break }
+      // Параллельный INSERT — повторяем
+    } else {
+      // Обновляем только если прогресс не изменился с момента чтения
+      const { data: updated } = await supabase
+        .from('customer_promo_progress')
+        .update({ progress: newProgress, updated_at: new Date().toISOString() })
+        .eq('customer_tg_id', customer_tg_id)
+        .eq('promo_id', promoId)
+        .eq('progress', current)
+        .select('progress')
+      if (updated && updated.length > 0) break
+      // 0 строк обновлено — кто-то опередил, повторяем
+    }
+  }
 
   // Лог действия бариста
   await supabase.from('barista_log').insert({
