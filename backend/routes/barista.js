@@ -313,6 +313,7 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
   // Читаем текущее значение → обновляем только если оно не изменилось → повторяем при конфликте
   let current = 0
   let newProgress = 1
+  let succeeded = false
   const MAX_RETRIES = 5
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -331,7 +332,7 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
       const { error } = await supabase
         .from('customer_promo_progress')
         .insert({ customer_tg_id, promo_id: promoId, progress: 1, updated_at: new Date().toISOString() })
-      if (!error) { newProgress = 1; break }
+      if (!error) { newProgress = 1; succeeded = true; break }
       // Параллельный INSERT — повторяем
     } else {
       // Обновляем только если прогресс не изменился с момента чтения
@@ -342,9 +343,13 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
         .eq('promo_id', promoId)
         .eq('progress', current)
         .select('progress')
-      if (updated && updated.length > 0) break
+      if (updated && updated.length > 0) { succeeded = true; break }
       // 0 строк обновлено — кто-то опередил, повторяем
     }
+  }
+
+  if (!succeeded) {
+    return res.status(409).json({ error: 'Конфликт при обновлении кружек. Попробуйте ещё раз.' })
   }
 
   // Лог действия бариста
