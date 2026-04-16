@@ -344,6 +344,8 @@ async function confirmCloseShift() {
     document.getElementById('shift-card').textContent = summary.total_card.toLocaleString('ru') + ' ₽'
     document.getElementById('shift-total').textContent =
       (summary.total_cash + summary.total_card).toLocaleString('ru') + ' ₽'
+    document.getElementById('shift-walkin-cash').textContent = (summary.walkin_cash ?? 0) + ' шт'
+    document.getElementById('shift-walkin-card').textContent = (summary.walkin_card ?? 0) + ' шт'
 
     document.getElementById('modal-shift').classList.remove('hidden')
   } catch (e) { toast(e.message) }
@@ -402,6 +404,7 @@ async function searchCustomer() {
 
 async function markCupDirect(payment) {
   if (!foundCustomerTgId || isRequesting) return
+  if (payment !== 'cash' && payment !== 'card') return
   isRequesting = true
   try {
     const { progress, total, reward } = await api('POST', '/barista/customers/cups', {

@@ -83,12 +83,28 @@ router.get('/shift/summary', auth('barista'), async (req, res) => {
     .gte('created_at', shift.opened_at)
     .eq('status', 'done')
 
-  const summary = { orders_count: 0, total_cash: 0, total_card: 0 }
+  const summary = { orders_count: 0, total_cash: 0, total_card: 0, walkin_cash: 0, walkin_card: 0 }
   if (orders) {
     orders.forEach(o => {
       summary.orders_count++
-      if (o.payment === 'cash') summary.total_cash += o.total || 0
-      else summary.total_card += o.total || 0
+      if (o.payment === 'cash')      summary.total_cash += o.total || 0
+      else if (o.payment === 'card') summary.total_card += o.total || 0
+      // null/unknown payment — не добавляем ни в cash, ни в card
+    })
+  }
+
+  // Кружки, проставленные напрямую (гости без Telegram-заказа)
+  const { data: walkIns } = await supabase
+    .from('barista_log')
+    .select('details')
+    .eq('barista_action', 'cup_added')
+    .is('order_id', null)
+    .gte('created_at', shift.opened_at)
+
+  if (walkIns) {
+    walkIns.forEach(l => {
+      if (l.details?.payment === 'cash')      summary.walkin_cash++
+      else if (l.details?.payment === 'card') summary.walkin_card++
     })
   }
 
@@ -118,8 +134,24 @@ router.post('/shift/close', auth('barista'), async (req, res) => {
   if (orders) {
     orders.forEach(o => {
       orders_count++
-      if (o.payment === 'cash') total_cash += o.total || 0
-      else total_card += o.total || 0
+      if (o.payment === 'cash')      total_cash += o.total || 0
+      else if (o.payment === 'card') total_card += o.total || 0
+    })
+  }
+
+  // Кружки без заказа (гости без Telegram)
+  const { data: walkIns } = await supabase
+    .from('barista_log')
+    .select('details')
+    .eq('barista_action', 'cup_added')
+    .is('order_id', null)
+    .gte('created_at', shift.opened_at)
+
+  let walkin_cash = 0, walkin_card = 0
+  if (walkIns) {
+    walkIns.forEach(l => {
+      if (l.details?.payment === 'cash')      walkin_cash++
+      else if (l.details?.payment === 'card') walkin_card++
     })
   }
 
@@ -135,7 +167,7 @@ router.post('/shift/close', auth('barista'), async (req, res) => {
   await supabase.from('barista_log').insert({
     barista_id,
     barista_action: 'shift_closed',
-    details: { orders_count, total_cash, total_card }
+    details: { orders_count, total_cash, total_card, walkin_cash, walkin_card }
   })
 
   res.json({ shift: data, orders_count, total_cash, total_card })
@@ -248,15 +280,17 @@ router.get('/analytics/peak-hours', auth('barista'), async (req, res) => {
 // GET /api/barista/customers/search?username=alex
 router.get('/customers/search', auth('barista'), async (req, res) => {
   const { username } = req.query
-  if (!username) return res.status(400).json({ error: 'username обязателен' })
+  const cleanUsername = (username || '').trim().replace('@', '')
+  if (!cleanUsername) return res.status(400).json({ error: 'username обязателен' })
 
   const { data, error } = await supabase
     .from('customers')
     .select('*')
-    .ilike('username', username.replace('@', ''))
+    .ilike('username', cleanUsername + '%')
+    .limit(1)
     .single()
 
-  if (error) return res.status(404).json({ error: 'Клиент не найден' })
+  if (error || !data) return res.status(404).json({ error: 'Клиент не найден' })
 
   const { data: progress } = await supabase
     .from('customer_promo_progress')
@@ -299,12 +333,16 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
   if (!customer_tg_id) return res.status(400).json({ error: 'customer_tg_id обязателен' })
 
   // Найти активную акцию лояльности
-  const { data: promo } = await supabase
+  const { data: promo, error: promoError } = await supabase
     .from('promos')
     .select('id, config')
     .eq('type', 'loyalty_cups')
     .eq('active', true)
     .single()
+
+  if (promoError && promoError.code !== 'PGRST116') {
+    return res.status(500).json({ error: 'Ошибка загрузки акции лояльности' })
+  }
 
   const promoId   = promo?.id   || 1
   const totalCups = promo?.config?.total_cups || 6
@@ -364,8 +402,8 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
   // Уведомление клиенту
   const bot = req.app.locals.bot
   if (bot) {
-    if (newProgress >= totalCups) {
-      // Набрали нужное количество — бесплатный напиток!
+    if (newProgress === totalCups) {
+      // Точно достигли порога — бесплатный напиток!
       bot.sendMessage(
         customer_tg_id,
         `🎉 Поздравляем! Ты накопил ${totalCups} кружек — следующий напиток бесплатно!\n\nПокажи это сообщение баристе ☕`
@@ -378,7 +416,7 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
     }
   }
 
-  res.json({ progress: newProgress, total: totalCups, reward: newProgress >= totalCups })
+  res.json({ progress: newProgress, total: totalCups, reward: newProgress === totalCups })
 })
 
 // POST /api/barista/customers/cups/reset — сброс после выдачи бесплатной кружки
@@ -386,25 +424,32 @@ router.post('/customers/cups/reset', auth('barista'), async (req, res) => {
   const { customer_tg_id } = req.body
   if (!customer_tg_id) return res.status(400).json({ error: 'customer_tg_id обязателен' })
 
-  const { data: promo } = await supabase
+  const { data: promo, error: promoError } = await supabase
     .from('promos')
-    .select('id')
+    .select('id, config')
     .eq('type', 'loyalty_cups')
     .eq('active', true)
     .single()
 
-  const promoId = promo?.id || 1
+  if (promoError && promoError.code !== 'PGRST116') {
+    return res.status(500).json({ error: 'Ошибка загрузки акции лояльности' })
+  }
 
-  await supabase
+  const promoId   = promo?.id || 1
+  const totalCups = promo?.config?.total_cups || 6
+
+  const { error: resetError } = await supabase
     .from('customer_promo_progress')
     .upsert({ customer_tg_id, promo_id: promoId, progress: 0, updated_at: new Date().toISOString() },
       { onConflict: 'customer_tg_id,promo_id' })
+
+  if (resetError) return res.status(500).json({ error: resetError.message })
 
   await supabase.from('barista_log').insert({
     barista_id:     req.user.barista_id,
     barista_action: 'cups_reset',
     customer_tg_id,
-    details:        { reason: 'free_drink_issued' }
+    details:        { reason: 'free_drink_issued', issued_at: new Date().toISOString(), cups_threshold: totalCups }
   })
 
   res.json({ ok: true })
