@@ -412,13 +412,14 @@ async function markCupDirect(payment) {
       payment
     })
     const payLabel = payment === 'cash' ? 'наличными' : 'картой'
-    const customerName = document.getElementById('found-name').textContent || ''
+    const rawName = document.getElementById('found-name').textContent || ''
+    const namePrefix = rawName && rawName !== '—' ? `${rawName} — ` : ''
     document.getElementById('found-cups').textContent = progress
     if (reward) {
       pendingRewardTgId = String(foundCustomerTgId)
       document.getElementById('modal-reward').classList.remove('hidden')
     } else {
-      toast(`☕ ${customerName} — ${payLabel}. Кружка: ${progress}/${total}`)
+      toast(`☕ ${namePrefix}${payLabel}. Кружка: ${progress}/${total}`)
     }
   } catch (e) { toast(e.message) }
   finally { isRequesting = false }

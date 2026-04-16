@@ -408,11 +408,14 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
         customer_tg_id,
         `🎉 Поздравляем! Ты накопил ${totalCups} кружек — следующий напиток бесплатно!\n\nПокажи это сообщение баристе ☕`
       ).catch(e => console.error('bot notify reward:', customer_tg_id, e.message))
-    } else if (newProgress < totalCups) {
-      bot.sendMessage(
-        customer_tg_id,
-        `☕ Кружка засчитана! У тебя ${newProgress} из ${totalCups}.\n\nЕщё ${totalCups - newProgress} — и следующий напиток бесплатно 🎁`
-      ).catch(e => console.error('bot notify cups:', customer_tg_id, e.message))
+    } else {
+      // newProgress < totalCups — обычное начисление, либо > totalCups (защитная ветка)
+      const remaining = totalCups - newProgress
+      const msg = remaining > 0
+        ? `☕ Кружка засчитана! У тебя ${newProgress} из ${totalCups}.\n\nЕщё ${remaining} — и следующий напиток бесплатно 🎁`
+        : `☕ Кружка засчитана! У тебя ${newProgress} кружек.`
+      bot.sendMessage(customer_tg_id, msg)
+        .catch(e => console.error('bot notify cups:', customer_tg_id, e.message))
     }
   }
 
