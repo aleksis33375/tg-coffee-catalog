@@ -6,6 +6,7 @@ let SHIFT_ID     = null
 let SHIFT_OPENED = null
 let supabaseClient = null
 let foundCustomerTgId = null
+let pendingRewardTgId = null
 
 // ── УТИЛИТЫ ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,10 @@ function showMainTab(tab) {
     document.getElementById('nav-orders').classList.add('active')
     document.getElementById('nav-search').classList.remove('active')
   } else {
+    document.getElementById('search-input').value = ''
+    document.getElementById('search-result').classList.add('hidden')
+    document.getElementById('search-not-found').classList.add('hidden')
+    foundCustomerTgId = null
     showScreen('search')
     document.getElementById('nav-orders').classList.remove('active')
     document.getElementById('nav-search').classList.add('active')
@@ -115,7 +120,9 @@ async function afterLogin() {
     const { shift_id, opened_at } = await api('POST', '/barista/shift/open')
     SHIFT_ID = shift_id
     SHIFT_OPENED = opened_at
-  } catch {}
+  } catch (e) {
+    toast('Не удалось открыть смену: ' + e.message)
+  }
 
   // Онбординг — показать только один раз
   const seenKey = 'onboarding_' + BARISTA_ID
@@ -186,7 +193,9 @@ function renderOrders(orders) {
         <button class="btn-ready" onclick="setStatus(${o.id},'ready')">Готов ✓</button>
         ${cupBtn}`
     } else if (o.status === 'ready') {
-      buttons = `<button class="btn-done" onclick="setStatus(${o.id},'done')">Выдан</button>`
+      buttons = `
+        <button class="btn-done btn-done-cash" onclick="setStatus(${o.id},'done','cash')">💵 Наличные</button>
+        <button class="btn-done btn-done-card" onclick="setStatus(${o.id},'done','card')">💳 Карта</button>`
     }
 
     return `<div class="order-card status-${o.status}" id="order-${o.id}">
@@ -202,11 +211,14 @@ function renderOrders(orders) {
   }).join('')
 }
 
-async function setStatus(id, status) {
+async function setStatus(id, status, payment) {
   try {
-    await api('PUT', `/barista/orders/${id}/status`, { status })
+    await api('PUT', `/barista/orders/${id}/status`, { status, payment })
     await loadOrders()
-    if (status === 'done') toast('Заказ выдан ✓')
+    if (status === 'done') {
+      const label = payment === 'cash' ? 'наличными' : 'картой'
+      toast(`Заказ выдан ✓ — оплата ${label}`)
+    }
   } catch (e) { toast(e.message) }
 }
 
@@ -217,11 +229,27 @@ async function addCupForOrder(orderId, customerTgId) {
       order_id: orderId
     })
     if (reward) {
-      toast(`🎉 ${progress}/${total} кружек — клиенту отправлено поздравление!`)
+      pendingRewardTgId = String(customerTgId)
+      document.getElementById('modal-reward').classList.remove('hidden')
     } else {
       toast(`☕ Кружка засчитана: ${progress}/${total}`)
     }
   } catch (e) { toast(e.message) }
+}
+
+async function confirmFreeDrink() {
+  if (!pendingRewardTgId) return
+  try {
+    await api('POST', '/barista/customers/cups/reset', { customer_tg_id: pendingRewardTgId })
+    closeRewardModal()
+    toast('🎁 Бесплатный напиток выдан, кружки сброшены')
+    document.getElementById('found-cups').textContent = 0
+  } catch (e) { toast(e.message) }
+}
+
+function closeRewardModal() {
+  document.getElementById('modal-reward').classList.add('hidden')
+  pendingRewardTgId = null
 }
 
 // ── ПУСТОЙ ЭКРАН (аналитика) ──────────────────────────────────────────────────
@@ -301,16 +329,18 @@ async function closeShift() {
   try {
     await api('POST', '/barista/shift/close')
     closeModal()
-    TOKEN = ''
-    BARISTA_NAME = ''
-    BARISTA_ID = ''
-    localStorage.removeItem('barista_token')
-    localStorage.removeItem('barista_name')
-    localStorage.removeItem('barista_id')
-    pinValue = ''
-    updateDots()
-    showScreen('pin')
-    toast('Смена закрыта')
+    toast('✅ Смена закрыта')
+    setTimeout(() => {
+      TOKEN = ''
+      BARISTA_NAME = ''
+      BARISTA_ID = ''
+      localStorage.removeItem('barista_token')
+      localStorage.removeItem('barista_name')
+      localStorage.removeItem('barista_id')
+      pinValue = ''
+      updateDots()
+      showScreen('pin')
+    }, 2000)
   } catch (e) { toast(e.message) }
 }
 
@@ -349,16 +379,17 @@ async function markCupDirect(payment) {
   if (!foundCustomerTgId) return
   try {
     const { progress, total, reward } = await api('POST', '/barista/customers/cups', {
-      customer_tg_id: String(foundCustomerTgId)
+      customer_tg_id: String(foundCustomerTgId),
+      payment
     })
     const payLabel = payment === 'cash' ? 'наличными' : 'картой'
+    document.getElementById('found-cups').textContent = progress
     if (reward) {
-      toast(`🎉 Оплата ${payLabel}. ${progress}/${total} кружек — поздравление отправлено!`)
+      pendingRewardTgId = String(foundCustomerTgId)
+      document.getElementById('modal-reward').classList.remove('hidden')
     } else {
       toast(`☕ Оплата ${payLabel}. Кружка засчитана: ${progress}/${total}`)
     }
-    // Обновляем счётчик на экране
-    document.getElementById('found-cups').textContent = progress
   } catch (e) { toast(e.message) }
 }
 
@@ -374,6 +405,7 @@ if (TOKEN) {
       TOKEN = ''
       localStorage.removeItem('barista_token')
       showScreen('pin')
+      setTimeout(() => toast('Сессия истекла, войдите снова'), 100)
     })
 } else {
   showScreen('pin')
