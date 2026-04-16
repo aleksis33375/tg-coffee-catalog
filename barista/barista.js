@@ -7,6 +7,7 @@ let SHIFT_OPENED = null
 let supabaseClient = null
 let foundCustomerTgId = null
 let pendingRewardTgId = null
+let isRequesting = false
 
 // ── УТИЛИТЫ ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,14 @@ async function api(method, path, body) {
   const json = await res.json()
   if (!res.ok) throw new Error(json.error || 'Ошибка')
   return json
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 function toast(msg) {
@@ -178,7 +187,7 @@ function renderOrders(orders) {
   empty.classList.add('hidden')
 
   list.innerHTML = orders.map(o => {
-    const items = Array.isArray(o.items) ? o.items.map(i => `${i.name} ×${i.qty}`).join(', ') : ''
+    const items = Array.isArray(o.items) ? o.items.map(i => `${escHtml(i.name)} ×${escHtml(i.qty)}`).join(', ') : ''
     const time = new Date(o.created_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
     const customer = o.customer_tg_id ? `ID ${o.customer_tg_id}` : 'Без аккаунта'
 
@@ -212,6 +221,8 @@ function renderOrders(orders) {
 }
 
 async function setStatus(id, status, payment) {
+  if (isRequesting) return
+  isRequesting = true
   try {
     await api('PUT', `/barista/orders/${id}/status`, { status, payment })
     await loadOrders()
@@ -220,9 +231,12 @@ async function setStatus(id, status, payment) {
       toast(`Заказ выдан ✓ — оплата ${label}`)
     }
   } catch (e) { toast(e.message) }
+  finally { isRequesting = false }
 }
 
 async function addCupForOrder(orderId, customerTgId) {
+  if (isRequesting) return
+  isRequesting = true
   try {
     const { progress, total, reward } = await api('POST', '/barista/customers/cups', {
       customer_tg_id: String(customerTgId),
@@ -235,16 +249,26 @@ async function addCupForOrder(orderId, customerTgId) {
       toast(`☕ Кружка засчитана: ${progress}/${total}`)
     }
   } catch (e) { toast(e.message) }
+  finally { isRequesting = false }
 }
 
 async function confirmFreeDrink() {
   if (!pendingRewardTgId) return
+  const tgId = pendingRewardTgId
+  pendingRewardTgId = null // предотвращаем повторный вызов до ответа
   try {
-    await api('POST', '/barista/customers/cups/reset', { customer_tg_id: pendingRewardTgId })
+    await api('POST', '/barista/customers/cups/reset', { customer_tg_id: tgId })
     closeRewardModal()
     toast('🎁 Бесплатный напиток выдан, кружки сброшены')
-    document.getElementById('found-cups').textContent = 0
-  } catch (e) { toast(e.message) }
+    // Скрываем карточку клиента — следующий поиск начнётся с чистого состояния
+    const cupsEl = document.getElementById('found-cups')
+    if (cupsEl) cupsEl.textContent = 0
+    document.getElementById('search-result').classList.add('hidden')
+    foundCustomerTgId = null
+  } catch (e) {
+    pendingRewardTgId = tgId // вернуть при ошибке
+    toast(e.message)
+  }
 }
 
 function closeRewardModal() {
@@ -363,10 +387,11 @@ async function searchCustomer() {
     foundCustomerTgId = customer.tg_id
 
     document.getElementById('found-name').textContent = customer.first_name || '—'
-    document.getElementById('found-username').textContent = '@' + (customer.username || username)
+    document.getElementById('found-username').textContent =
+      customer.username ? ('@' + customer.username) : 'Без @username'
 
     // Кружки из прогресса (promo_id = 1 — cups_loyalty, если есть)
-    const cups = progress.find(p => p.progress > 0)
+    const cups = Array.isArray(progress) ? progress.find(p => p.progress > 0) : null
     document.getElementById('found-cups').textContent = cups ? cups.progress : 0
 
     document.getElementById('search-result').classList.remove('hidden')
@@ -376,7 +401,8 @@ async function searchCustomer() {
 }
 
 async function markCupDirect(payment) {
-  if (!foundCustomerTgId) return
+  if (!foundCustomerTgId || isRequesting) return
+  isRequesting = true
   try {
     const { progress, total, reward } = await api('POST', '/barista/customers/cups', {
       customer_tg_id: String(foundCustomerTgId),
@@ -391,6 +417,7 @@ async function markCupDirect(payment) {
       toast(`☕ Оплата ${payLabel}. Кружка засчитана: ${progress}/${total}`)
     }
   } catch (e) { toast(e.message) }
+  finally { isRequesting = false }
 }
 
 // ── СТАРТ ─────────────────────────────────────────────────────────────────────
