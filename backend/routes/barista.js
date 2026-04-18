@@ -2,13 +2,23 @@ const express = require('express')
 const router = express.Router()
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcrypt')
+const rateLimit = require('express-rate-limit')
 const supabase = require('../db')
 const auth = require('../middleware/auth')
 
 // ─── АВТОРИЗАЦИЯ ─────────────────────────────────────────────────────────────
 
+// Брутфорс PIN (4 цифры = 10 000 комбинаций) — 10 попыток / 15 мин на IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много попыток. Попробуй через 15 минут' }
+})
+
 // POST /api/barista/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { pin } = req.body
   if (!pin) return res.status(400).json({ error: 'PIN обязателен' })
 

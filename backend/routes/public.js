@@ -1,6 +1,55 @@
 const express = require('express')
 const router = express.Router()
+const crypto = require('crypto')
+const rateLimit = require('express-rate-limit')
 const supabase = require('../db')
+
+// Rate-limit для публичных POST — 30 запросов/мин на IP
+const publicWriteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много запросов. Подожди минуту' }
+})
+
+/**
+ * Проверка подписи Telegram WebApp initData (Б-А34).
+ * Возвращает { ok: true, user } или { ok: false }.
+ * Алгоритм: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+ */
+function verifyTelegramInitData(initData, botToken) {
+  if (!initData || !botToken) return { ok: false }
+  try {
+    const params = new URLSearchParams(initData)
+    const hash = params.get('hash')
+    if (!hash) return { ok: false }
+    params.delete('hash')
+
+    const dataCheckString = [...params.entries()]
+      .map(([k, v]) => `${k}=${v}`)
+      .sort()
+      .join('\n')
+
+    const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest()
+    const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
+
+    if (!crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(calcHash, 'hex'))) {
+      return { ok: false }
+    }
+
+    // Защита от replay: auth_date не старше 24 часов
+    const authDate = parseInt(params.get('auth_date'), 10)
+    if (!authDate || Date.now() / 1000 - authDate > 86400) return { ok: false }
+
+    const userJson = params.get('user')
+    if (!userJson) return { ok: false }
+    const user = JSON.parse(userJson)
+    return { ok: true, user }
+  } catch {
+    return { ok: false }
+  }
+}
 
 // GET /api/config — публичная конфигурация для клиентов (anon ключ для Realtime)
 router.get('/config', (_req, res) => {
@@ -33,10 +82,17 @@ router.get('/menu', async (req, res) => {
 })
 
 // POST /api/customers — зарегистрировать клиента при первом заходе
-router.post('/customers', async (req, res) => {
-  const { tg_id, first_name, username, source } = req.body
+router.post('/customers', publicWriteLimiter, async (req, res) => {
+  const { init_data, source } = req.body
 
-  if (!tg_id) return res.status(400).json({ error: 'tg_id обязателен' })
+  // Б-А34: tg_id берём ТОЛЬКО из подписанного Telegram initData, а не из body
+  const botToken = process.env.BOT_TOKEN
+  const check = verifyTelegramInitData(init_data, botToken)
+  if (!check.ok) return res.status(401).json({ error: 'Неверная подпись Telegram' })
+
+  const tg_id = String(check.user.id)
+  const first_name = check.user.first_name || ''
+  const username = check.user.username || ''
 
   // Проверить существует ли клиент
   const { data: existing } = await supabase
@@ -55,26 +111,33 @@ router.post('/customers', async (req, res) => {
     return res.json({ status: 'exists', customer: existing })
   }
 
-  // Новый клиент — создать запись
-  const referral_code = Math.random().toString(36).slice(2, 10).toUpperCase()
+  // Новый клиент — создать запись с уникальным referral_code (retry при коллизии)
+  let inserted = null
+  let lastError = null
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const referral_code = crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase()
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({
+        tg_id,
+        first_name,
+        username,
+        source: source || 'direct',
+        status: 'visitor',
+        referral_code,
+        last_seen: new Date().toISOString()
+      })
+      .select()
+      .single()
 
-  const { data, error } = await supabase
-    .from('customers')
-    .insert({
-      tg_id,
-      first_name,
-      username,
-      source: source || 'direct',
-      status: 'visitor',
-      referral_code,
-      last_seen: new Date().toISOString()
-    })
-    .select()
-    .single()
+    if (!error) { inserted = data; break }
+    lastError = error
+    if (error.code !== '23505') break // не UNIQUE — прекращаем retry
+  }
 
-  if (error) return res.status(500).json({ error: error.message })
+  if (!inserted) return res.status(500).json({ error: lastError?.message || 'Не удалось создать клиента' })
 
-  res.json({ status: 'created', customer: data })
+  res.json({ status: 'created', customer: inserted })
 })
 
 // GET /api/customers/:tg_id — данные клиента и прогресс по акциям
@@ -123,20 +186,55 @@ router.get('/customers/:tg_id/referral', async (req, res) => {
   res.json({ link, code: customer.referral_code })
 })
 
-// POST /api/orders — принять заказ
-router.post('/orders', async (req, res) => {
-  const { customer_tg_id, items, total, delivery_type, delivery_time, comment } = req.body
+// POST /api/orders — принять заказ (Б-А33: total пересчитывается на сервере)
+router.post('/orders', publicWriteLimiter, async (req, res) => {
+  const { init_data, items, delivery_type, delivery_time, comment } = req.body
 
-  if (!items || !total) return res.status(400).json({ error: 'items и total обязательны' })
+  // Б-А34 (для заказов): tg_id обязателен и должен быть подписан Telegram
+  const check = verifyTelegramInitData(init_data, process.env.BOT_TOKEN)
+  if (!check.ok) return res.status(401).json({ error: 'Неверная подпись Telegram' })
+  const customer_tg_id = String(check.user.id)
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'items обязательны' })
+  }
+
+  // Базовая валидация структуры позиций
+  const badItem = items.find(i => !i || typeof i.id !== 'number' || typeof i.qty !== 'number' || i.qty <= 0 || i.qty > 100)
+  if (badItem) return res.status(400).json({ error: 'Некорректные позиции' })
+
+  // Б-А33: тянем актуальные цены из БД — клиент цену не задаёт
+  const ids = [...new Set(items.map(i => i.id))]
+  const { data: menuRows, error: menuErr } = await supabase
+    .from('menu_items')
+    .select('id, name, price, available')
+    .in('id', ids)
+
+  if (menuErr) return res.status(500).json({ error: menuErr.message })
+
+  const menuMap = new Map(menuRows.map(m => [m.id, m]))
+  for (const i of items) {
+    const m = menuMap.get(i.id)
+    if (!m || !m.available) {
+      return res.status(400).json({ error: `Позиция ${i.id} недоступна` })
+    }
+  }
+
+  // Собираем серверную версию items с ценой и именем из БД
+  const serverItems = items.map(i => {
+    const m = menuMap.get(i.id)
+    return { id: m.id, name: m.name, price: m.price, qty: i.qty }
+  })
+  const total = serverItems.reduce((sum, i) => sum + i.price * i.qty, 0)
 
   // Сохранить заказ
   const { data: order, error } = await supabase
     .from('orders')
     .insert({
       customer_tg_id,
-      items,
+      items: serverItems,
       total,
-      delivery_type: delivery_type || 'pickup',
+      delivery_type: delivery_type === 'delivery' ? 'delivery' : 'pickup',
       delivery_time,
       comment,
       status: 'new'
@@ -147,16 +245,14 @@ router.post('/orders', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message })
 
   // Обновить статус клиента visitor → buyer
-  if (customer_tg_id) {
-    await supabase
-      .from('customers')
-      .update({ status: 'buyer', last_seen: new Date().toISOString() })
-      .eq('tg_id', customer_tg_id)
-  }
+  await supabase
+    .from('customers')
+    .update({ status: 'buyer', last_seen: new Date().toISOString() })
+    .eq('tg_id', customer_tg_id)
 
-  // Уведомление в Telegram — отправляется через bot.js (подключается в server.js)
-  if (req.app.locals.bot && customer_tg_id) {
-    const itemsList = items.map(i => `${i.name} × ${i.qty}`).join(', ')
+  // Уведомление в Telegram менеджеру
+  if (req.app.locals.bot) {
+    const itemsList = serverItems.map(i => `${i.name} × ${i.qty}`).join(', ')
     const manager_tg_id = req.app.locals.manager_tg_id
     if (manager_tg_id) {
       req.app.locals.bot.sendMessage(
@@ -166,7 +262,7 @@ router.post('/orders', async (req, res) => {
     }
   }
 
-  res.json({ order_id: order.id, status: 'ok' })
+  res.json({ order_id: order.id, total, status: 'ok' })
 })
 
 module.exports = router

@@ -225,7 +225,7 @@ function renderTopItems(items) {
   el.innerHTML = items.map((item, i) => `
     <div class="top-item-row">
       <span class="top-item-rank">${i + 1}</span>
-      <span class="top-item-name">${item.name}</span>
+      <span class="top-item-name">${escapeHtml(item.name)}</span>
       <div class="top-item-bar-wrap">
         <div class="top-item-bar" style="width:${Math.round(item.count / max * 100)}%"></div>
       </div>
@@ -239,9 +239,9 @@ function renderOrders(orders) {
   const list = document.getElementById('orders-list')
   if (!orders.length) { list.innerHTML = '<div class="loading">Заказов пока нет</div>'; return }
   list.innerHTML = orders.map(o => {
-    const items = Array.isArray(o.items) ? o.items.map(i => `${i.name} ×${i.qty}`).join(', ') : ''
+    const items = Array.isArray(o.items) ? o.items.map(i => `${escapeHtml(i.name)} ×${i.qty}`).join(', ') : ''
     const date = new Date(o.created_at).toLocaleString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-    const customer = o.customers?.first_name || o.customer_tg_id || '—'
+    const customer = escapeHtml(o.customers?.first_name || o.customer_tg_id || '—')
     const actions = o.status !== 'done' ? `
       <div class="order-actions">
         ${o.status === 'new'       ? `<button onclick="setOrderStatus(${o.id},'preparing')">Принять</button>` : ''}
@@ -323,7 +323,11 @@ function showAddItem() {
   document.getElementById('f-volume').value = ''
   document.getElementById('f-description').value = ''
   document.getElementById('f-badge').value = ''
-  document.getElementById('f-photo-preview').classList.add('hidden')
+  // Б-А06: сброс файлового input, иначе фото от прошлого сохранения уйдёт новому товару
+  document.getElementById('f-photo').value = ''
+  const prev = document.getElementById('f-photo-preview')
+  prev.classList.add('hidden')
+  prev.removeAttribute('src')
   document.getElementById('item-form-overlay').classList.remove('hidden')
 }
 
@@ -338,10 +342,15 @@ function editItem(id) {
   document.getElementById('f-volume').value = item.volume || ''
   document.getElementById('f-description').value = item.description || ''
   document.getElementById('f-badge').value = item.badge || ''
+  document.getElementById('f-photo').value = ''
+  const prev = document.getElementById('f-photo-preview')
   if (item.photo_url) {
-    const prev = document.getElementById('f-photo-preview')
     prev.src = item.photo_url
     prev.classList.remove('hidden')
+  } else {
+    // Б-А07: скрыть превью если у редактируемого товара нет фото
+    prev.classList.add('hidden')
+    prev.removeAttribute('src')
   }
   document.getElementById('item-form-overlay').classList.remove('hidden')
 }
@@ -359,7 +368,13 @@ document.getElementById('f-photo').addEventListener('change', e => {
   prev.classList.remove('hidden')
 })
 
+let isSavingItem = false
+
 async function saveItem() {
+  // Б-А05: guard против двойного клика — защищает от дублей
+  if (isSavingItem) return
+  const saveBtn = document.querySelector('#item-form-overlay .form-actions button:not(.btn-ghost)')
+
   const body = {
     category:    document.getElementById('f-category').value,
     name:        document.getElementById('f-name').value.trim(),
@@ -370,28 +385,36 @@ async function saveItem() {
   }
   if (!body.name || !body.price) { toast('Заполни название и цену', true); return }
 
-  // Загрузить фото если выбрано
-  const photoFile = document.getElementById('f-photo').files[0]
-  if (photoFile) {
-    try {
-      const form = new FormData()
-      form.append('image', photoFile)
-      const { url } = await api('POST', '/admin/upload/image', form, true)
-      body.photo_url = url
-    } catch (e) { toast('Ошибка загрузки фото: ' + e.message, true); return }
-  }
+  isSavingItem = true
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Сохранение...' }
 
   try {
-    if (editingItemId) {
-      await api('PUT', `/admin/menu/items/${editingItemId}`, body)
-      toast('Позиция обновлена')
-    } else {
-      await api('POST', '/admin/menu/items', body)
-      toast('Позиция добавлена')
+    // Загрузить фото если выбрано
+    const photoFile = document.getElementById('f-photo').files[0]
+    if (photoFile) {
+      try {
+        const form = new FormData()
+        form.append('image', photoFile)
+        const { url } = await api('POST', '/admin/upload/image', form, true)
+        body.photo_url = url
+      } catch (e) { toast('Ошибка загрузки фото: ' + e.message, true); return }
     }
-    closeItemForm()
-    await loadMenu()
-  } catch (e) { toast(e.message, true) }
+
+    try {
+      if (editingItemId) {
+        await api('PUT', `/admin/menu/items/${editingItemId}`, body)
+        toast('Позиция обновлена')
+      } else {
+        await api('POST', '/admin/menu/items', body)
+        toast('Позиция добавлена')
+      }
+      closeItemForm()
+      await loadMenu()
+    } catch (e) { toast(e.message, true) }
+  } finally {
+    isSavingItem = false
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Сохранить' }
+  }
 }
 
 // ── НАСТРОЙКИ ─────────────────────────────────────────────────────────────────
@@ -459,19 +482,22 @@ async function saveBaristaSettings() {
 
 // ── БАРИСТЫ ──────────────────────────────────────────────────────────────────
 
+let baristas = []
+const togglingBaristaIds = new Set()
+
 async function loadBaristas() {
   try {
-    const list = await api('GET', '/admin/baristas')
+    baristas = await api('GET', '/admin/baristas')
     const el = document.getElementById('baristas-list')
-    if (!list.length) { el.innerHTML = '<div class="loading">Баристы не добавлены</div>'; return }
-    el.innerHTML = list.map(b => `
-      <div class="barista-row">
+    if (!baristas.length) { el.innerHTML = '<div class="loading">Баристы не добавлены</div>'; return }
+    el.innerHTML = baristas.map(b => `
+      <div class="barista-row" data-barista-id="${b.id}">
         <div>
-          <div class="barista-name">${b.name}</div>
+          <div class="barista-name">${escapeHtml(b.name)}</div>
           <div class="barista-status">${b.active ? 'Активен' : 'Уволен'}</div>
         </div>
         <div class="barista-actions">
-          <button onclick="changePin(${b.id}, '${b.name}')">PIN</button>
+          <button onclick="openPinForm(${b.id})">PIN</button>
           <button onclick="toggleBarista(${b.id}, ${!b.active})" class="${b.active ? 'btn-ghost' : ''}">
             ${b.active ? 'Уволить' : 'Вернуть'}
           </button>
@@ -481,30 +507,104 @@ async function loadBaristas() {
   } catch {}
 }
 
+// Б-А09: форма добавления бариста (заменяет blocking prompt)
 function showAddBarista() {
-  const name = prompt('Имя бариста:')
-  if (!name) return
-  const pin = prompt('PIN (4 цифры):')
-  if (!pin) return
-  api('POST', '/admin/baristas', { name, pin })
-    .then(() => { toast('Бариста добавлен'); loadBaristas() })
-    .catch(e => toast(e.message, true))
+  document.getElementById('bf-name').value = ''
+  document.getElementById('bf-pin').value = ''
+  document.getElementById('barista-form-overlay').classList.remove('hidden')
+  setTimeout(() => document.getElementById('bf-name').focus(), 50)
 }
 
-function changePin(id, name) {
-  const pin = prompt(`Новый PIN для ${name} (4 цифры):`)
-  if (!pin) return
-  api('PUT', `/admin/baristas/${id}/pin`, { pin })
-    .then(() => toast('PIN изменён'))
-    .catch(e => toast(e.message, true))
+function closeBaristaForm() {
+  document.getElementById('barista-form-overlay').classList.add('hidden')
 }
 
+let isSavingBarista = false
+
+async function saveNewBarista() {
+  if (isSavingBarista) return
+  const name = document.getElementById('bf-name').value.trim()
+  const pin = document.getElementById('bf-pin').value.trim()
+  if (!name) { toast('Введи имя бариста', true); return }
+  if (!/^\d{4}$/.test(pin)) { toast('PIN — ровно 4 цифры', true); return }
+
+  const btn = document.getElementById('bf-save-btn')
+  isSavingBarista = true
+  btn.disabled = true
+  btn.textContent = 'Сохранение...'
+  try {
+    await api('POST', '/admin/baristas', { name, pin })
+    toast('Бариста добавлен')
+    closeBaristaForm()
+    await loadBaristas()
+  } catch (e) {
+    toast(e.message, true)
+  } finally {
+    isSavingBarista = false
+    btn.disabled = false
+    btn.textContent = 'Сохранить'
+  }
+}
+
+// Б-А10: форма смены PIN (заменяет blocking prompt)
+let pinFormBaristaId = null
+
+function openPinForm(id) {
+  const b = baristas.find(x => x.id === id)
+  if (!b) return
+  pinFormBaristaId = id
+  document.getElementById('pin-form-title').textContent = `Новый PIN для ${b.name}`
+  document.getElementById('pf-pin').value = ''
+  document.getElementById('pin-form-overlay').classList.remove('hidden')
+  setTimeout(() => document.getElementById('pf-pin').focus(), 50)
+}
+
+function closePinForm() {
+  document.getElementById('pin-form-overlay').classList.add('hidden')
+  pinFormBaristaId = null
+}
+
+let isSavingPin = false
+
+async function saveNewPin() {
+  if (isSavingPin || !pinFormBaristaId) return
+  const pin = document.getElementById('pf-pin').value.trim()
+  if (!/^\d{4}$/.test(pin)) { toast('PIN — ровно 4 цифры', true); return }
+
+  const btn = document.getElementById('pf-save-btn')
+  isSavingPin = true
+  btn.disabled = true
+  btn.textContent = 'Сохранение...'
+  try {
+    await api('PUT', `/admin/baristas/${pinFormBaristaId}/pin`, { pin })
+    toast('PIN изменён')
+    closePinForm()
+  } catch (e) {
+    toast(e.message, true)
+  } finally {
+    isSavingPin = false
+    btn.disabled = false
+    btn.textContent = 'Сохранить'
+  }
+}
+
+// Б-А08: guard против двойного клика — блокирует повторный запрос пока идёт первый
 async function toggleBarista(id, active) {
+  if (togglingBaristaIds.has(id)) return
+  togglingBaristaIds.add(id)
+  const row = document.querySelector(`.barista-row[data-barista-id="${id}"]`)
+  const buttons = row ? row.querySelectorAll('.barista-actions button') : []
+  buttons.forEach(b => b.disabled = true)
   try {
     await api('PUT', `/admin/baristas/${id}/active`, { active })
     toast(active ? 'Доступ восстановлен' : 'Доступ закрыт')
-    loadBaristas()
-  } catch (e) { toast(e.message, true) }
+    await loadBaristas()
+  } catch (e) {
+    toast(e.message, true)
+    buttons.forEach(b => b.disabled = false)
+  } finally {
+    togglingBaristaIds.delete(id)
+  }
 }
 
 // ── МАРКЕТИНГ ─────────────────────────────────────────────────────────────────
@@ -570,7 +670,7 @@ function renderBroadcastHistory(list) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
 }
 
 // ── CSV-ЭКСПОРТ ───────────────────────────────────────────────────────────────

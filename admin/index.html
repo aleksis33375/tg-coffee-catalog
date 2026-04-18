@@ -305,6 +305,37 @@
 
   </main>
 
+  <!-- Форма добавления бариста -->
+  <div id="barista-form-overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <h3>Добавить бариста</h3>
+      <label>Имя
+        <input type="text" id="bf-name" placeholder="Маша" autocomplete="off">
+      </label>
+      <label>PIN (4 цифры)
+        <input type="text" id="bf-pin" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
+      </label>
+      <div class="form-actions">
+        <button id="bf-save-btn" onclick="saveNewBarista()">Сохранить</button>
+        <button class="btn-ghost" onclick="closeBaristaForm()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Форма смены PIN -->
+  <div id="pin-form-overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <h3 id="pin-form-title">Новый PIN</h3>
+      <label>PIN (4 цифры)
+        <input type="text" id="pf-pin" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
+      </label>
+      <div class="form-actions">
+        <button id="pf-save-btn" onclick="saveNewPin()">Сохранить</button>
+        <button class="btn-ghost" onclick="closePinForm()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Нижняя навигация -->
   <nav class="bottom-nav">
     <button class="nav-btn active" onclick="showTab('dashboard')" id="nav-dashboard">

@@ -25,6 +25,26 @@ const CATEGORY_DEFAULTS = {
 const DEFAULT_GRADIENT = ['#333344', '#555566'];
 const DEFAULT_EMOJI    = '☕';
 
+// Экранирование пользовательских данных в HTML (против XSS)
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Безопасный URL для картинок: только http(s) и data:image, иначе пустая строка
+function safeImageUrl(url) {
+  if (!url) return '';
+  const s = String(url).trim();
+  if (/^(https?:)?\/\//i.test(s) || /^data:image\//i.test(s) || s.startsWith('/')) {
+    return s.replace(/["'\\\s]/g, encodeURIComponent);
+  }
+  return '';
+}
+
 // Состояние приложения — всё в одном объекте
 const state = {
   menuData: null,           // загруженные данные из API
@@ -112,15 +132,16 @@ async function registerCustomer() {
 
   state.tgId = String(user.id);
 
+  // Без подписанного initData backend откажет (Б-А34)
+  if (!tg?.initData) return;
+
   try {
     await fetch(API_BASE + '/customers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tg_id:      state.tgId,
-        first_name: user.first_name || '',
-        username:   user.username   || '',
-        source:     'mini_app',
+        init_data: tg.initData,
+        source:    'mini_app',
       }),
     });
   } catch {}
@@ -131,7 +152,7 @@ function showError(message) {
   grid.innerHTML = `
     <div style="grid-column:1/-1; padding:40px 16px; text-align:center; color:var(--tg-hint);">
       <div style="font-size:48px; margin-bottom:16px;">😔</div>
-      <p>${message}</p>
+      <p>${escapeHtml(message)}</p>
     </div>`;
 }
 
@@ -390,20 +411,24 @@ function renderCards() {
 
 function createCardHTML(item) {
   const gradient = `linear-gradient(135deg, ${item.gradient[0]}, ${item.gradient[1]})`;
+  const safeName = escapeHtml(item.name);
+  const safeVolume = escapeHtml(item.volume || '');
+  const safeEmoji = escapeHtml(item.emoji || '');
 
   // Бейдж: хит / новинка
   let badgeHTML = '';
   if (item.badge) {
-    badgeHTML = `<div class="badge badge-${item.badge === 'хит' ? 'hit' : 'new'}">${item.badge}</div>`;
+    badgeHTML = `<div class="badge badge-${item.badge === 'хит' ? 'hit' : 'new'}">${escapeHtml(item.badge)}</div>`;
   }
 
   // Фото или градиент+эмоджи
-  const imgContent = item.photo
-    ? `<img src="${item.photo}" alt="${item.name}" loading="lazy">`
-    : `<span>${item.emoji}</span>`;
+  const photoUrl = safeImageUrl(item.photo);
+  const imgContent = photoUrl
+    ? `<img src="${photoUrl}" alt="${safeName}" loading="lazy">`
+    : `<span>${safeEmoji}</span>`;
 
   // Объём + цена: «300 мл — 220 ₽»
-  const volumePart = item.volume ? `<span class="card-volume">${item.volume}</span><span class="card-sep">&nbsp;–&nbsp;</span>` : '';
+  const volumePart = item.volume ? `<span class="card-volume">${safeVolume}</span><span class="card-sep">&nbsp;–&nbsp;</span>` : '';
   const priceHTML = item.oldPrice
     ? `<div class="card-price-wrap">
          ${volumePart}<span class="card-price">${item.price} ₽</span>
@@ -414,13 +439,13 @@ function createCardHTML(item) {
        </div>`;
 
   return `
-    <article class="card" data-id="${item.id}" role="listitem" aria-label="${item.name}, ${item.price} ₽">
+    <article class="card" data-id="${item.id}" role="listitem" aria-label="${safeName}, ${item.price} ₽">
       <div class="card-img" style="background: ${gradient};" aria-hidden="true">
         ${badgeHTML}
         ${imgContent}
       </div>
       <div class="card-body">
-        <div class="card-name">${item.name}</div>
+        <div class="card-name">${safeName}</div>
         ${priceHTML}
         <div class="card-btn-area">${cardButtonHTML(item.id)}</div>
       </div>
@@ -467,9 +492,10 @@ function renderPromos(container) {
 }
 
 function renderPromoDiscount(promo) {
-  const photosHTML = promo.photos.map(src =>
-    `<img src="${src}" alt="">`
-  ).join('');
+  const photosHTML = (promo.photos || []).map(src => {
+    const safe = safeImageUrl(src);
+    return safe ? `<img src="${safe}" alt="">` : '';
+  }).join('');
 
   return `
     <div class="promo-card">
@@ -478,11 +504,11 @@ function renderPromoDiscount(promo) {
         <div class="promo-badge">Акция</div>
       </div>
       <div class="promo-body">
-        <div class="promo-title"><span>−10%</span> на первый заказ<br>${promo.subtitle}</div>
-        <p class="promo-desc">${promo.description}</p>
+        <div class="promo-title"><span>−10%</span> на первый заказ<br>${escapeHtml(promo.subtitle)}</div>
+        <p class="promo-desc">${escapeHtml(promo.description)}</p>
         <div class="promo-date">
           <div class="promo-date-dot"></div>
-          ${promo.dateLabel}
+          ${escapeHtml(promo.dateLabel)}
         </div>
       </div>
     </div>`;
@@ -517,8 +543,8 @@ function renderPromoCups(promo) {
     <div class="promo-card">
       <div class="promo-cups-body">
         <div class="promo-badge">Программа лояльности</div>
-        <div class="promo-title">${promo.title}</div>
-        <p class="promo-desc">${promo.description}</p>
+        <div class="promo-title">${escapeHtml(promo.title)}</div>
+        <p class="promo-desc">${escapeHtml(promo.description)}</p>
 
         <div class="cups-row">${cupsHTML}</div>
 
@@ -737,9 +763,13 @@ function openDetail(itemId) {
   const hero = document.getElementById('detail-hero');
   const emojiEl = document.getElementById('detail-emoji');
 
-  if (item.photo) {
-    // Реальное фото — на весь блок, эмоджи скрываем
-    hero.style.background = `url('${item.photo}') center/cover no-repeat`;
+  const safePhoto = safeImageUrl(item.photo);
+  if (safePhoto) {
+    // Реальное фото — через setProperty, CSS сам экранирует url()
+    hero.style.backgroundImage = `url("${safePhoto}")`;
+    hero.style.backgroundSize = 'cover';
+    hero.style.backgroundPosition = 'center';
+    hero.style.backgroundRepeat = 'no-repeat';
     emojiEl.textContent = '';
     emojiEl.style.display = 'none';
   } else {
@@ -752,7 +782,7 @@ function openDetail(itemId) {
   // Бейдж на детальной карточке
   const badgeWrap = document.getElementById('detail-badge-wrap');
   badgeWrap.innerHTML = item.badge
-    ? `<div class="badge badge-${item.badge === 'хит' ? 'hit' : 'new'}">${item.badge}</div>`
+    ? `<div class="badge badge-${item.badge === 'хит' ? 'hit' : 'new'}">${escapeHtml(item.badge)}</div>`
     : '';
 
   document.getElementById('detail-name').textContent = item.name;
@@ -767,13 +797,13 @@ function openDetail(itemId) {
   // Отзыв
   const reviewEl = document.getElementById('detail-review');
   if (item.review && item.rating) {
-    const stars = Math.round(parseFloat(item.rating));
+    const stars = Math.max(0, Math.min(5, Math.round(parseFloat(item.rating))));
     reviewEl.innerHTML = `
       <div class="review-stars">
         ${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}
-        <span class="review-rating">${item.rating}</span>
+        <span class="review-rating">${escapeHtml(item.rating)}</span>
       </div>
-      <p class="review-text">«${item.review}»</p>`;
+      <p class="review-text">«${escapeHtml(item.review)}»</p>`;
     reviewEl.style.display = '';
   } else {
     reviewEl.style.display = 'none';
@@ -820,7 +850,7 @@ function openConfirm() {
     if (!item) return '';
     return `
       <div class="confirm-cart-item">
-        <span class="confirm-cart-item-name">${item.name}</span>
+        <span class="confirm-cart-item-name">${escapeHtml(item.name)}</span>
         <span class="confirm-cart-item-qty">${entry.qty} шт</span>
         <span class="confirm-cart-item-price">${item.price * entry.qty} ₽</span>
       </div>`;
@@ -876,11 +906,14 @@ async function handleSubmitOrder() {
 
   try { tg?.HapticFeedback?.notificationOccurred('success'); } catch {}
 
-  // Собираем позиции
-  const items = state.cart.map(entry => {
-    const item = state.menuData.items.find(i => i.id === entry.id);
-    return item ? { id: item.id, name: item.name, price: item.price, qty: entry.qty } : null;
-  }).filter(Boolean);
+  // Без подписанного initData заказ отправить нельзя (Б-А34)
+  if (!tg?.initData) {
+    alert('Открой приложение через Telegram — в браузере заказ отправить нельзя.');
+    return;
+  }
+
+  // Собираем позиции: id и qty — цену и name посчитает сервер (Б-А33)
+  const items = state.cart.map(entry => ({ id: entry.id, qty: entry.qty }));
 
   // Данные доставки
   const isDelivery = document.querySelector('.delivery-tab[data-type="delivery"]')?.classList.contains('active');
@@ -897,9 +930,8 @@ async function handleSubmitOrder() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customer_tg_id: state.tgId || null,
+        init_data:     tg.initData,
         items,
-        total:         cartTotal(),
         delivery_type: isDelivery ? 'delivery' : 'pickup',
         delivery_time: time,
         comment:       address,

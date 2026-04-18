@@ -2,18 +2,34 @@ const express = require('express')
 const router = express.Router()
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcrypt')
+const crypto = require('crypto')
 const multer = require('multer')
+const rateLimit = require('express-rate-limit')
 const supabase = require('../db')
 const auth = require('../middleware/auth')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } })
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много попыток. Попробуй через 15 минут' }
+})
+
 // ─── АВТОРИЗАЦИЯ ────────────────────────────────────────────────────────────
 
 // POST /api/admin/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { password } = req.body
-  if (!password || password !== process.env.ADMIN_PASSWORD) {
+  const expected = process.env.ADMIN_PASSWORD
+  if (!password || !expected) {
+    return res.status(401).json({ error: 'Неверный пароль' })
+  }
+  const pwdBuf = Buffer.from(String(password))
+  const expBuf = Buffer.from(expected)
+  if (pwdBuf.length !== expBuf.length || !crypto.timingSafeEqual(pwdBuf, expBuf)) {
     return res.status(401).json({ error: 'Неверный пароль' })
   }
   const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, {
@@ -49,7 +65,8 @@ router.put('/settings', auth('admin'), async (req, res) => {
   if (updates.length === 0) return res.status(400).json({ error: 'Нечего обновлять' })
 
   for (const { key, value } of updates) {
-    await supabase.from('settings').upsert({ key, value })
+    const { error } = await supabase.from('settings').upsert({ key, value })
+    if (error) return res.status(500).json({ error: error.message })
   }
 
   // Обновить app.locals если сменился bot_token или manager_tg_id

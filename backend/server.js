@@ -7,6 +7,9 @@ const { startCron }  = require('./cron')
 
 const app = express()
 
+// За nginx — доверяем X-Forwarded-For (иначе req.ip = 127.0.0.1 и rate-limit ломается)
+app.set('trust proxy', 1)
+
 // CORS — разрешаем запросы с Mini App на Vercel и локально
 app.use(cors({
   origin: [
