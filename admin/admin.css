@@ -328,6 +328,8 @@ button:hover { opacity: 0.85; }
 }
 
 .order-id    { font-weight: 600; }
+.order-tg-link { font-weight: 400; color: var(--accent); font-size: 0.88rem; text-decoration: none; }
+.order-tg-link:hover { text-decoration: underline; }
 .order-total { color: var(--gold); font-weight: 600; }
 
 .order-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem; }

@@ -572,11 +572,13 @@ router.get('/analytics/chart', auth('admin'), async (req, res) => {
 router.get('/analytics/top-items', auth('admin'), async (req, res) => {
   const { since, until } = parsePeriodRange(req)
 
+  // Б-А92: фильтр по status='done' — не считаем отменённые заказы
   const { data, error } = await supabase
     .from('orders')
     .select('items')
     .gte('created_at', since)
     .lte('created_at', until)
+    .eq('status', 'done')
 
   if (error) return res.status(500).json({ error: error.message })
 

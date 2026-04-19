@@ -294,9 +294,10 @@ async function loadDrilldown(date) {
   if (!panel) return
   panel.classList.remove('hidden')
   const closeBtn = `<button class="drilldown-close" onclick="document.getElementById('drilldown-panel').classList.add('hidden')">✕</button>`
-  panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${date}</strong>${closeBtn}</div><div class="loading">Загрузка...</div>`
+  const dateSafe = escapeHtml(date)
+  panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${dateSafe}</strong>${closeBtn}</div><div class="loading">Загрузка...</div>`
   try {
-    const orders = await api('GET', `/admin/orders?date=${date}&limit=100`)
+    const orders = await api('GET', `/admin/orders?date=${encodeURIComponent(date)}&limit=100`)
     if (!orders.length) {
       panel.querySelector('.loading').textContent = 'Заказов нет'
       return
@@ -305,7 +306,7 @@ async function loadDrilldown(date) {
       const items = Array.isArray(o.items) ? o.items.map(i => `${escapeHtml(i.name)} ×${i.qty}`).join(', ') : '—'
       return `<tr><td>#${o.id}</td><td>${items}</td><td>${(o.total || 0).toLocaleString('ru')} ₽</td><td>${escapeHtml(o.status || '')}</td></tr>`
     }).join('')
-    panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${date}</strong>${closeBtn}</div><div class="drilldown-scroll"><table class="drilldown-table"><thead><tr><th>#</th><th>Позиции</th><th>Сумма</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${dateSafe}</strong>${closeBtn}</div><div class="drilldown-scroll"><table class="drilldown-table"><thead><tr><th>#</th><th>Позиции</th><th>Сумма</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table></div>`
   } catch (e) {
     panel.innerHTML += `<div class="loading">Ошибка: ${escapeHtml(e.message)}</div>`
   }
@@ -434,7 +435,11 @@ function renderOrders(orders) {
   list.innerHTML = orders.map(o => {
     const items = Array.isArray(o.items) ? o.items.map(i => `${escapeHtml(i.name)} ×${i.qty}`).join(', ') : ''
     const date = new Date(o.created_at).toLocaleString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-    const customer = escapeHtml(o.customers?.first_name || o.customer_tg_id || '—')
+    const customerName = escapeHtml(o.customers?.first_name || o.customer_tg_id || '—')
+    const username = o.customers?.username
+    const usernameLink = username
+      ? ` <a href="https://t.me/${encodeURIComponent(username)}" target="_blank" class="order-tg-link">@${escapeHtml(username)}</a>`
+      : ''
     const actions = o.status !== 'done' ? `
       <div class="order-actions">
         ${o.status === 'new'       ? `<button onclick="setOrderStatus(${o.id},'preparing')">Принять</button>` : ''}
@@ -443,7 +448,7 @@ function renderOrders(orders) {
       </div>` : ''
     return `<div class="order-card">
       <div class="order-header">
-        <span class="order-id">#${o.id} — ${customer}</span>
+        <span class="order-id">#${o.id} — ${customerName}${usernameLink}</span>
         <span class="status-badge status-${o.status}">${STATUS_LABELS[o.status]}</span>
       </div>
       <div class="order-meta">${date}</div>
