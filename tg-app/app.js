@@ -580,8 +580,11 @@ function getCupsCount() {
 
 async function refreshCupsFromApi() {
   if (!state.tgId || !state.cupsPromoId) return; // Б-А38: без акции не ищем progress
+  if (!tg?.initData) return; // Б-А59: без подписи backend вернёт 401
   try {
-    const { progress } = await fetch(API_BASE + '/customers/' + state.tgId)
+    const { progress } = await fetch(API_BASE + '/customers/' + state.tgId, {
+      headers: { 'X-Telegram-Init-Data': tg.initData }
+    })
       .then(r => r.json())
       .then(d => {
         const cups = (d.progress || []).find(p => p.promo_id === state.cupsPromoId);

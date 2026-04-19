@@ -73,6 +73,58 @@ router.post('/shift/open', auth('barista'), async (req, res) => {
   res.json({ shift_id: data.id, opened_at: data.opened_at })
 })
 
+// Б-А62: итоги смены должны учитывать ТОЛЬКО то, что закрыл текущий бариста.
+// Ищем его действия `status_changed → done` в barista_log за смену и тянем по этим order_id.
+// Walk-in кружки — только с barista_id текущего бариста.
+async function collectShiftTotals(barista_id, opened_at) {
+  const { data: doneLog } = await supabase
+    .from('barista_log')
+    .select('order_id, details')
+    .eq('barista_id', barista_id)
+    .eq('barista_action', 'status_changed')
+    .gte('created_at', opened_at)
+
+  const orderIds = [...new Set(
+    (doneLog || [])
+      .filter(l => l.details?.status === 'done' && l.order_id)
+      .map(l => l.order_id)
+  )]
+
+  let orders_count = 0, total_cash = 0, total_card = 0
+  if (orderIds.length) {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('total, payment, status')
+      .in('id', orderIds)
+      .eq('status', 'done')
+    if (orders) {
+      orders.forEach(o => {
+        orders_count++
+        if (o.payment === 'cash')      total_cash += o.total || 0
+        else if (o.payment === 'card') total_card += o.total || 0
+      })
+    }
+  }
+
+  const { data: walkIns } = await supabase
+    .from('barista_log')
+    .select('details')
+    .eq('barista_id', barista_id)
+    .eq('barista_action', 'cup_added')
+    .is('order_id', null)
+    .gte('created_at', opened_at)
+
+  let walkin_cash = 0, walkin_card = 0
+  if (walkIns) {
+    walkIns.forEach(l => {
+      if (l.details?.payment === 'cash')      walkin_cash++
+      else if (l.details?.payment === 'card') walkin_card++
+    })
+  }
+
+  return { orders_count, total_cash, total_card, walkin_cash, walkin_card }
+}
+
 // GET /api/barista/shift/summary
 router.get('/shift/summary', auth('barista'), async (req, res) => {
   const { barista_id } = req.user
@@ -86,39 +138,8 @@ router.get('/shift/summary', auth('barista'), async (req, res) => {
 
   if (!shift) return res.status(404).json({ error: 'Открытой смены нет' })
 
-  // Считаем заказы за смену
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('total, payment')
-    .gte('created_at', shift.opened_at)
-    .eq('status', 'done')
-
-  const summary = { orders_count: 0, total_cash: 0, total_card: 0, walkin_cash: 0, walkin_card: 0 }
-  if (orders) {
-    orders.forEach(o => {
-      summary.orders_count++
-      if (o.payment === 'cash')      summary.total_cash += o.total || 0
-      else if (o.payment === 'card') summary.total_card += o.total || 0
-      // null/unknown payment — не добавляем ни в cash, ни в card
-    })
-  }
-
-  // Кружки, проставленные напрямую (гости без Telegram-заказа)
-  const { data: walkIns } = await supabase
-    .from('barista_log')
-    .select('details')
-    .eq('barista_action', 'cup_added')
-    .is('order_id', null)
-    .gte('created_at', shift.opened_at)
-
-  if (walkIns) {
-    walkIns.forEach(l => {
-      if (l.details?.payment === 'cash')      summary.walkin_cash++
-      else if (l.details?.payment === 'card') summary.walkin_card++
-    })
-  }
-
-  res.json({ shift, summary })
+  const totals = await collectShiftTotals(barista_id, shift.opened_at)
+  res.json({ shift, summary: totals })
 })
 
 // POST /api/barista/shift/close
@@ -134,36 +155,8 @@ router.post('/shift/close', auth('barista'), async (req, res) => {
 
   if (!shift) return res.status(404).json({ error: 'Открытой смены нет' })
 
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('total, payment')
-    .gte('created_at', shift.opened_at)
-    .eq('status', 'done')
-
-  let orders_count = 0, total_cash = 0, total_card = 0
-  if (orders) {
-    orders.forEach(o => {
-      orders_count++
-      if (o.payment === 'cash')      total_cash += o.total || 0
-      else if (o.payment === 'card') total_card += o.total || 0
-    })
-  }
-
-  // Кружки без заказа (гости без Telegram)
-  const { data: walkIns } = await supabase
-    .from('barista_log')
-    .select('details')
-    .eq('barista_action', 'cup_added')
-    .is('order_id', null)
-    .gte('created_at', shift.opened_at)
-
-  let walkin_cash = 0, walkin_card = 0
-  if (walkIns) {
-    walkIns.forEach(l => {
-      if (l.details?.payment === 'cash')      walkin_cash++
-      else if (l.details?.payment === 'card') walkin_card++
-    })
-  }
+  const { orders_count, total_cash, total_card, walkin_cash, walkin_card } =
+    await collectShiftTotals(barista_id, shift.opened_at)
 
   const { data, error } = await supabase
     .from('shifts')

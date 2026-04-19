@@ -245,7 +245,11 @@ router.put('/menu/items/:id/availability', auth('admin'), async (req, res) => {
 
 // PUT /api/admin/menu/items/:id/sort
 router.put('/menu/items/:id/sort', auth('admin'), async (req, res) => {
-  const { sort_order } = req.body
+  // Б-А61: sort_order должен быть целым числом в разумных границах — иначе порядок меню можно сломать строкой/NaN
+  const sort_order = Number.parseInt(req.body.sort_order, 10)
+  if (!Number.isInteger(sort_order) || sort_order < 0 || sort_order > 9999) {
+    return res.status(400).json({ error: 'sort_order должен быть целым числом от 0 до 9999' })
+  }
   const { data, error } = await supabase.from('menu_items').update({ sort_order }).eq('id', req.params.id).select().single()
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
@@ -443,13 +447,15 @@ router.get('/customers/export', auth('admin'), async (req, res) => {
 
 // GET /api/admin/barista-log — история действий баристы
 router.get('/barista-log', auth('admin'), async (req, res) => {
-  const { limit = 50 } = req.query
+  // Б-А60: кап limit по аналогии с /orders и /customers, чтобы один запрос
+  // не выкачал всю таблицу логов и не подвесил сервер
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200)
 
   const { data, error } = await supabase
     .from('barista_log')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(Number(limit))
+    .limit(limit)
 
   if (error) return res.status(500).json({ error: error.message })
 

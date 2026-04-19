@@ -152,8 +152,20 @@ router.post('/customers', publicWriteLimiter, async (req, res) => {
   res.json({ status: 'created', customer: inserted })
 })
 
+// Б-А59: GET-эндпоинты клиента должны быть доступны только самому клиенту.
+// initData приходит в заголовке (GET не имеет тела), tg_id в URL сверяется с подписью.
+function requireSelfTelegramAuth(req, res, next) {
+  const initData = req.get('X-Telegram-Init-Data') || req.query.init_data
+  const check = verifyTelegramInitData(initData, process.env.BOT_TOKEN)
+  if (!check.ok) return res.status(401).json({ error: 'Неверная подпись Telegram' })
+  if (String(check.user.id) !== String(req.params.tg_id)) {
+    return res.status(403).json({ error: 'Доступ запрещён' })
+  }
+  next()
+}
+
 // GET /api/customers/:tg_id — данные клиента и прогресс по акциям
-router.get('/customers/:tg_id', async (req, res) => {
+router.get('/customers/:tg_id', requireSelfTelegramAuth, async (req, res) => {
   const { tg_id } = req.params
 
   const { data: customer, error } = await supabase
@@ -174,7 +186,7 @@ router.get('/customers/:tg_id', async (req, res) => {
 })
 
 // GET /api/customers/:tg_id/referral — реферальная ссылка
-router.get('/customers/:tg_id/referral', async (req, res) => {
+router.get('/customers/:tg_id/referral', requireSelfTelegramAuth, async (req, res) => {
   const { tg_id } = req.params
 
   const { data: customer, error } = await supabase
