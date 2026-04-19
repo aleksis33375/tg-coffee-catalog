@@ -56,6 +56,20 @@ function coerceBool(v) {
   return null // невалидно
 }
 
+// Б-А76: парсит period/from/to из query → { since, until } в ISO
+function parsePeriodRange(req) {
+  if (req.query.from && req.query.to) {
+    // Б-А85: валидируем даты, чтобы невалидная строка не вызвала toISOString() на NaN
+    const sinceD = new Date(req.query.from + 'T00:00:00+03:00')
+    const untilD = new Date(req.query.to   + 'T23:59:59+03:00')
+    if (!isNaN(sinceD) && !isNaN(untilD) && sinceD <= untilD) {
+      return { since: sinceD.toISOString(), until: untilD.toISOString() }
+    }
+  }
+  const period = Math.min(parseInt(req.query.period) || 7, 365)
+  return { since: new Date(Date.now() - period * 86400000).toISOString(), until: new Date().toISOString() }
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -292,33 +306,38 @@ router.put('/orders/:id/status', auth('admin'), async (req, res) => {
   res.json(data)
 })
 
-// GET /api/admin/orders/stats
+// GET /api/admin/orders/stats?period=7|30|90 OR from=YYYY-MM-DD&to=YYYY-MM-DD
+// Б-А75: добавлены avg_check и new_customers; Б-А76/77: единый period/range
 router.get('/orders/stats', auth('admin'), async (req, res) => {
-  // Б-А39: «сегодня» считаем по Europe/Moscow, а не по UTC,
-  // иначе после 00:00 МСК цифры за день сбрасываются только после 03:00 МСК
+  // Б-А39: «сегодня» считаем по Europe/Moscow
   const now = new Date()
   const todayStart = startOfDayISO(now)
-  const weekAgo    = new Date(now - 7  * 86400000).toISOString()
-  const monthAgo   = new Date(now - 30 * 86400000).toISOString()
+  const { since, until } = parsePeriodRange(req)
 
   try {
-    const [todayRes, weekRes, monthRes] = await Promise.all([
+    const [todayRes, periodRes, newCustRes] = await Promise.all([
       supabase.from('orders').select('total').gte('created_at', todayStart).eq('status', 'done'),
-      supabase.from('orders').select('total').gte('created_at', weekAgo).eq('status', 'done'),
-      supabase.from('orders').select('total').gte('created_at', monthAgo).eq('status', 'done')
+      supabase.from('orders').select('total').gte('created_at', since).lte('created_at', until).eq('status', 'done'),
+      supabase.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since).lte('created_at', until)
     ])
 
-    if (todayRes.error || weekRes.error || monthRes.error) {
-      const err = todayRes.error || weekRes.error || monthRes.error
+    if (todayRes.error || periodRes.error) {
+      const err = todayRes.error || periodRes.error
       return res.status(500).json({ error: err.message })
     }
 
     const sum = arr => (arr || []).reduce((s, o) => s + (o.total || 0), 0)
+    const periodRevenue = sum(periodRes.data)
+    const periodOrders  = periodRes.data?.length || 0
 
     res.json({
       today: { revenue: sum(todayRes.data), orders: todayRes.data?.length || 0 },
-      week:  { revenue: sum(weekRes.data),  orders: weekRes.data?.length  || 0 },
-      month: { revenue: sum(monthRes.data), orders: monthRes.data?.length || 0 }
+      period: {
+        revenue: periodRevenue,
+        orders:  periodOrders,
+        avg_check:     periodOrders > 0 ? Math.round(periodRevenue / periodOrders) : 0,
+        new_customers: newCustRes.count || 0
+      }
     })
   } catch (e) {
     res.status(500).json({ error: e?.message || 'Не удалось получить статистику' })
@@ -491,21 +510,21 @@ router.get('/barista-log', auth('admin'), async (req, res) => {
 
 // ─── АНАЛИТИКА ───────────────────────────────────────────────────────────────
 
-// GET /api/admin/analytics/chart?period=7|30
+// GET /api/admin/analytics/chart?period=7|30 OR from=YYYY-MM-DD&to=YYYY-MM-DD
+// Б-А76/77/78: единый range, возвращаем данные для line-графика
 router.get('/analytics/chart', auth('admin'), async (req, res) => {
-  const period = Math.min(parseInt(req.query.period) || 7, 90)
-  const since  = new Date(Date.now() - period * 86400000).toISOString()
+  const { since, until } = parsePeriodRange(req)
 
   const { data, error } = await supabase
     .from('orders')
     .select('created_at, total')
     .gte('created_at', since)
+    .lte('created_at', until)
     .eq('status', 'done')
 
   if (error) return res.status(500).json({ error: error.message })
 
-  // Б-А57: группируем по дате в таймзоне кофейни (Europe/Moscow), а не по UTC,
-  // чтобы заказы после 00:00 МСК попадали в правильный день, а не в предыдущий
+  // Б-А57: группируем по дате в таймзоне кофейни (Europe/Moscow), а не по UTC
   const byDate = {}
   ;(data || []).forEach(o => {
     const date = dateInTZ(new Date(o.created_at))
@@ -514,25 +533,30 @@ router.get('/analytics/chart', auth('admin'), async (req, res) => {
     byDate[date].orders++
   })
 
-  // Заполняем все дни периода (без пропусков)
+  // Заполняем все дни диапазона (без пропусков)
   const result = []
-  for (let i = period - 1; i >= 0; i--) {
-    const date = dateInTZ(new Date(Date.now() - i * 86400000))
+  const d = new Date(since)
+  const endStr = dateInTZ(new Date(until))
+  while (true) {
+    const date = dateInTZ(d)
     result.push({ date, ...(byDate[date] || { revenue: 0, orders: 0 }) })
+    if (date >= endStr) break
+    d.setDate(d.getDate() + 1)
+    if (result.length > 400) break // safety cap
   }
 
   res.json(result)
 })
 
-// GET /api/admin/analytics/top-items?period=30
+// GET /api/admin/analytics/top-items?period=30 OR from=&to=
 router.get('/analytics/top-items', auth('admin'), async (req, res) => {
-  const period = Math.min(parseInt(req.query.period) || 30, 365)
-  const since  = new Date(Date.now() - period * 86400000).toISOString()
+  const { since, until } = parsePeriodRange(req)
 
   const { data, error } = await supabase
     .from('orders')
     .select('items')
     .gte('created_at', since)
+    .lte('created_at', until)
 
   if (error) return res.status(500).json({ error: error.message })
 
@@ -548,6 +572,83 @@ router.get('/analytics/top-items', auth('admin'), async (req, res) => {
     .map(([name, count]) => ({ name, count }))
 
   res.json(top)
+})
+
+// GET /api/admin/analytics/traffic-sources?period=|from=&to=
+// Б-А79: источники трафика из таблицы customers
+router.get('/analytics/traffic-sources', auth('admin'), async (req, res) => {
+  const { since, until } = parsePeriodRange(req)
+  const { data, error } = await supabase
+    .from('customers')
+    .select('source')
+    .gte('created_at', since)
+    .lte('created_at', until)
+  if (error) return res.status(500).json({ error: error.message })
+  const counts = {}
+  ;(data || []).forEach(c => { const s = c.source || 'direct'; counts[s] = (counts[s] || 0) + 1 })
+  res.json(Object.entries(counts).map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count))
+})
+
+// GET /api/admin/analytics/peak-hours?period=|from=&to=
+// Б-А80: распределение заказов по часам (Europe/Moscow)
+router.get('/analytics/peak-hours', auth('admin'), async (req, res) => {
+  const { since, until } = parsePeriodRange(req)
+  const { data, error } = await supabase
+    .from('orders')
+    .select('created_at')
+    .gte('created_at', since)
+    .lte('created_at', until)
+  if (error) return res.status(500).json({ error: error.message })
+  const hourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false })
+  const hours = {}
+  ;(data || []).forEach(o => {
+    const h = Number(hourFmt.format(new Date(o.created_at)))
+    if (!Number.isFinite(h)) return
+    hours[h] = (hours[h] || 0) + 1
+  })
+  const result = []
+  for (let h = 0; h < 24; h++) {
+    if (hours[h]) result.push({ hour: h, orders: hours[h] })
+  }
+  res.json(result)
+})
+
+// GET /api/admin/analytics/by-category?period=|from=&to=
+// Б-А81: выручка по категориям меню
+router.get('/analytics/by-category', auth('admin'), async (req, res) => {
+  const { since, until } = parsePeriodRange(req)
+  const [ordersRes, menuRes] = await Promise.all([
+    supabase.from('orders').select('items').gte('created_at', since).lte('created_at', until).eq('status', 'done'),
+    supabase.from('menu_items').select('id, category')
+  ])
+  if (ordersRes.error) return res.status(500).json({ error: ordersRes.error.message })
+  // Б-А86: menuRes.error не критична — при неудаче вся выручка пойдёт в "Без категории"
+  if (menuRes.error) console.warn('[by-category] menu_items query failed:', menuRes.error.message)
+  const catMap = {}
+  ;(menuRes.data || []).forEach(m => { catMap[m.id] = m.category || 'Без категории' })
+  const revenue = {}
+  ;(ordersRes.data || []).forEach(o => {
+    if (!Array.isArray(o.items)) return
+    o.items.forEach(i => {
+      const cat = catMap[i.id] || 'Без категории'
+      revenue[cat] = (revenue[cat] || 0) + (i.price || 0) * (i.qty || 1)
+    })
+  })
+  res.json(Object.entries(revenue).map(([category, r]) => ({ category, revenue: Math.round(r) })).sort((a, b) => b.revenue - a.revenue))
+})
+
+// GET /api/admin/analytics/funnel
+// Б-А82: воронка конверсии visitor → buyer
+router.get('/analytics/funnel', auth('admin'), async (req, res) => {
+  const { data, error } = await supabase.from('customers').select('status')
+  if (error) return res.status(500).json({ error: error.message })
+  const counts = { visitor: 0, buyer: 0 }
+  ;(data || []).forEach(c => { if (c.status in counts) counts[c.status]++ })
+  const total = counts.visitor + counts.buyer
+  res.json([
+    { label: 'Все клиенты', count: total },
+    { label: 'Сделали заказ', count: counts.buyer }
+  ])
 })
 
 // ─── РАССЫЛКИ ────────────────────────────────────────────────────────────────

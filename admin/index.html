@@ -93,39 +93,74 @@
     <!-- Вкладка 1: Дашборд -->
     <section id="tab-dashboard" class="tab-content">
       <h2 class="section-title">Дашборд</h2>
-      <div class="stats-grid">
+
+      <!-- Б-А76/77: единый фильтр периода для всех блоков -->
+      <div class="dash-period-bar">
+        <div class="dash-period-btns">
+          <button class="period-btn active" onclick="setDashPeriod(7,this)">7 дн</button>
+          <button class="period-btn" onclick="setDashPeriod(30,this)">30 дн</button>
+          <button class="period-btn" onclick="setDashPeriod(90,this)">90 дн</button>
+        </div>
+        <div class="dash-daterange">
+          <input type="date" id="dash-from">
+          <span class="dash-range-sep">—</span>
+          <input type="date" id="dash-to">
+          <button class="btn-compare" onclick="setDashCustomRange()">Показать</button>
+        </div>
+      </div>
+
+      <!-- Б-А75: 4 карточки статистики -->
+      <div class="stats-grid-4">
+        <div class="stat-card">
+          <div class="stat-label">Выручка за период</div>
+          <div class="stat-value" id="stat-period-revenue">—</div>
+          <div class="stat-sub" id="stat-period-orders">— заказов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Средний чек</div>
+          <div class="stat-value" id="stat-avg-check">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Новых клиентов</div>
+          <div class="stat-value" id="stat-new-customers">—</div>
+        </div>
         <div class="stat-card">
           <div class="stat-label">Сегодня</div>
           <div class="stat-value" id="stat-today-revenue">—</div>
           <div class="stat-sub" id="stat-today-orders">— заказов</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Неделя</div>
-          <div class="stat-value" id="stat-week-revenue">—</div>
-          <div class="stat-sub" id="stat-week-orders">— заказов</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Месяц</div>
-          <div class="stat-value" id="stat-month-revenue">—</div>
-          <div class="stat-sub" id="stat-month-orders">— заказов</div>
-        </div>
       </div>
 
-      <!-- График выручки -->
+      <!-- Б-А78: линейный график выручки; Б-А83: drill-down по клику -->
       <div class="chart-block">
-        <div class="chart-header">
-          <h3 class="section-subtitle" style="margin:0">Выручка</h3>
-          <div class="chart-period-btns">
-            <button class="period-btn active" onclick="setChartPeriod(7,this)">7 дней</button>
-            <button class="period-btn" onclick="setChartPeriod(30,this)">30 дней</button>
-          </div>
-        </div>
+        <h3 class="section-subtitle">Выручка по дням</h3>
         <canvas id="revenue-chart" height="180"></canvas>
+        <div id="drilldown-panel" class="drilldown-panel hidden"></div>
+      </div>
+
+      <!-- Б-А79/80/81/82: сетка мини-диаграмм 2×2 -->
+      <div class="charts-grid-2">
+        <div class="chart-block">
+          <h3 class="section-subtitle">Источники трафика</h3>
+          <div class="chart-doughnut-wrap"><canvas id="traffic-chart"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <h3 class="section-subtitle">Выручка по категориям</h3>
+          <div class="chart-doughnut-wrap"><canvas id="category-chart"></canvas></div>
+        </div>
+        <div class="chart-block">
+          <h3 class="section-subtitle">Пиковые часы</h3>
+          <canvas id="peak-chart" height="160"></canvas>
+        </div>
+        <div class="chart-block">
+          <h3 class="section-subtitle">Воронка конверсии</h3>
+          <div id="funnel-block" class="funnel-block"></div>
+        </div>
       </div>
 
       <!-- Топ товаров -->
       <div class="top-items-block">
-        <h3 class="section-subtitle">Топ позиций за месяц</h3>
+        <h3 class="section-subtitle">Топ позиций</h3>
         <div id="top-items-list" class="top-items-list">
           <div class="loading">Загрузка...</div>
         </div>

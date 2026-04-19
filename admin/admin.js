@@ -151,18 +151,64 @@ async function wizardFinish() {
 
 // ── ДАШБОРД ──────────────────────────────────────────────────────────────────
 
+// Б-А77: единое состояние периода для всех блоков дашборда
+let dashPeriod = 7
+let dashFrom   = null
+let dashTo     = null
+let revenueChart  = null
+let trafficChart  = null
+let categoryChart = null
+let peakChart     = null
+
+function dashParams() {
+  if (dashFrom && dashTo) return `from=${dashFrom}&to=${dashTo}`
+  return `period=${dashPeriod}`
+}
+
+// Б-А77: один обработчик, обновляет все блоки
+function setDashPeriod(period, btn) {
+  dashPeriod = period
+  dashFrom = null
+  dashTo   = null
+  const fromEl = document.getElementById('dash-from')
+  const toEl   = document.getElementById('dash-to')
+  if (fromEl) fromEl.value = ''
+  if (toEl)   toEl.value   = ''
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'))
+  if (btn) btn.classList.add('active')
+  loadDashboard()
+}
+
+// Б-А76: произвольный диапазон дат
+function setDashCustomRange() {
+  const from = document.getElementById('dash-from')?.value
+  const to   = document.getElementById('dash-to')?.value
+  if (!from || !to || from > to) return
+  dashFrom = from
+  dashTo   = to
+  dashPeriod = null
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'))
+  loadDashboard()
+}
+
 async function loadDashboard() {
+  const params = dashParams()
+
   try {
-    const stats = await api('GET', '/admin/orders/stats')
-    document.getElementById('stat-today-revenue').textContent = stats.today.revenue.toLocaleString('ru') + ' ₽'
-    document.getElementById('stat-today-orders').textContent = stats.today.orders + ' заказов'
-    document.getElementById('stat-week-revenue').textContent = stats.week.revenue.toLocaleString('ru') + ' ₽'
-    document.getElementById('stat-week-orders').textContent = stats.week.orders + ' заказов'
-    document.getElementById('stat-month-revenue').textContent = stats.month.revenue.toLocaleString('ru') + ' ₽'
-    document.getElementById('stat-month-orders').textContent = stats.month.orders + ' заказов'
+    const stats = await api('GET', `/admin/orders/stats?${params}`)
+    document.getElementById('stat-period-revenue').textContent  = (stats.period?.revenue || 0).toLocaleString('ru') + ' ₽'
+    document.getElementById('stat-period-orders').textContent   = (stats.period?.orders  || 0) + ' заказов'
+    document.getElementById('stat-avg-check').textContent       = stats.period?.avg_check ? stats.period.avg_check.toLocaleString('ru') + ' ₽' : '—'
+    document.getElementById('stat-new-customers').textContent   = stats.period?.new_customers ?? '—'
+    document.getElementById('stat-today-revenue').textContent   = (stats.today?.revenue  || 0).toLocaleString('ru') + ' ₽'
+    document.getElementById('stat-today-orders').textContent    = (stats.today?.orders   || 0) + ' заказов'
   } catch (e) { console.error('Ошибка загрузки статистики:', e.message) }
 
-  loadChart(7)
+  loadChart()
+  loadTrafficSources()
+  loadByCategory()
+  loadPeakHours()
+  loadFunnel()
   loadTopItems()
   loadOrders()
 }
@@ -175,21 +221,13 @@ async function loadOrders() {
   } catch (e) { console.error('Ошибка загрузки заказов:', e.message) }
 }
 
-// ── ГРАФИК ────────────────────────────────────────────────────────────────────
+// ── ГЛАВНЫЙ ГРАФИК (Б-А78: line) ─────────────────────────────────────────────
 
-let revenueChart = null
-
-async function loadChart(period) {
+async function loadChart() {
   try {
-    const data = await api('GET', `/admin/analytics/chart?period=${period}`)
+    const data = await api('GET', `/admin/analytics/chart?${dashParams()}`)
     renderChart(data)
   } catch (e) { console.error('Ошибка загрузки графика:', e.message) }
-}
-
-function setChartPeriod(period, btn) {
-  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'))
-  btn.classList.add('active')
-  loadChart(period)
 }
 
 function renderChart(data) {
@@ -205,27 +243,26 @@ function renderChart(data) {
   if (revenueChart) revenueChart.destroy()
 
   revenueChart = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
       labels,
       datasets: [{
         label: 'Выручка, ₽',
         data: revenue,
-        backgroundColor: 'rgba(201,112,112,0.7)',
         borderColor: '#c97070',
-        borderWidth: 1,
-        borderRadius: 4,
+        backgroundColor: 'rgba(201,112,112,0.15)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        fill: true,
+        tension: 0.3
       }]
     },
     options: {
       responsive: true,
       plugins: {
         legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => ctx.parsed.y.toLocaleString('ru') + ' ₽'
-          }
-        }
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toLocaleString('ru') + ' ₽' } }
       },
       scales: {
         x: { ticks: { color: '#8888aa', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
@@ -234,16 +271,132 @@ function renderChart(data) {
           grid: { color: 'rgba(255,255,255,0.05)' },
           beginAtZero: true
         }
+      },
+      // Б-А83: drill-down при клике на точку графика
+      onClick: (_evt, elements) => {
+        if (!elements.length) return
+        const date = data[elements[0].index]?.date
+        if (date) loadDrilldown(date)
       }
     }
   })
+}
+
+// ── DRILL-DOWN (Б-А83) ────────────────────────────────────────────────────────
+
+async function loadDrilldown(date) {
+  const panel = document.getElementById('drilldown-panel')
+  if (!panel) return
+  panel.classList.remove('hidden')
+  const closeBtn = `<button class="drilldown-close" onclick="document.getElementById('drilldown-panel').classList.add('hidden')">✕</button>`
+  panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${date}</strong>${closeBtn}</div><div class="loading">Загрузка...</div>`
+  try {
+    const orders = await api('GET', `/admin/orders?date=${date}&limit=100`)
+    if (!orders.length) {
+      panel.querySelector('.loading').textContent = 'Заказов нет'
+      return
+    }
+    const rows = orders.map(o => {
+      const items = Array.isArray(o.items) ? o.items.map(i => `${escapeHtml(i.name)} ×${i.qty}`).join(', ') : '—'
+      return `<tr><td>#${o.id}</td><td>${items}</td><td>${(o.total || 0).toLocaleString('ru')} ₽</td><td>${escapeHtml(o.status || '')}</td></tr>`
+    }).join('')
+    panel.innerHTML = `<div class="drilldown-header"><strong>Заказы за ${date}</strong>${closeBtn}</div><div class="drilldown-scroll"><table class="drilldown-table"><thead><tr><th>#</th><th>Позиции</th><th>Сумма</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  } catch (e) {
+    panel.innerHTML += `<div class="loading">Ошибка: ${escapeHtml(e.message)}</div>`
+  }
+}
+
+// ── ИСТОЧНИКИ ТРАФИКА (Б-А79) ─────────────────────────────────────────────────
+
+async function loadTrafficSources() {
+  try {
+    const data = await api('GET', `/admin/analytics/traffic-sources?${dashParams()}`)
+    renderDoughnut('traffic-chart', data.map(d => String(d.source || 'прямой')), data.map(d => d.count), trafficChart, c => { trafficChart = c })
+  } catch (e) { console.error(e) }
+}
+
+// ── ВЫРУЧКА ПО КАТЕГОРИЯМ (Б-А81) ────────────────────────────────────────────
+
+async function loadByCategory() {
+  try {
+    const data = await api('GET', `/admin/analytics/by-category?${dashParams()}`)
+    renderDoughnut('category-chart', data.map(d => d.category || 'Без категории'), data.map(d => d.revenue), categoryChart, c => { categoryChart = c })
+  } catch (e) { console.error(e) }
+}
+
+// ── ПИКОВЫЕ ЧАСЫ (Б-А80) ─────────────────────────────────────────────────────
+
+async function loadPeakHours() {
+  try {
+    const data = await api('GET', `/admin/analytics/peak-hours?${dashParams()}`)
+    const ctx = document.getElementById('peak-chart')
+    if (!ctx) return
+    if (peakChart) peakChart.destroy()
+    peakChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d.hour + ':00'),
+        datasets: [{ data: data.map(d => d.orders), backgroundColor: '#c97070', borderRadius: 4 }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8888aa', font: { size: 10 } }, grid: { display: false } },
+          y: { ticks: { color: '#8888aa', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+        }
+      }
+    })
+  } catch (e) { console.error(e) }
+}
+
+// ── ВОРОНКА КОНВЕРСИИ (Б-А82) ────────────────────────────────────────────────
+
+async function loadFunnel() {
+  const el = document.getElementById('funnel-block')
+  if (!el) return
+  try {
+    const data = await api('GET', '/admin/analytics/funnel')
+    const max = data[0]?.count || 1
+    el.innerHTML = data.map(d => `
+      <div class="funnel-row">
+        <div class="funnel-label">${escapeHtml(d.label)}</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:${Math.round(d.count / max * 100)}%"></div>
+        </div>
+        <div class="funnel-count">${d.count}</div>
+      </div>`).join('')
+  } catch (e) { el.innerHTML = '<div class="loading">Нет данных</div>' }
+}
+
+// ── ОБЩИЙ РЕНДЕР DOUGHNUT ─────────────────────────────────────────────────────
+
+const DOUGHNUT_COLORS = ['#c97070', '#57b374', '#FFD700', '#7070c9', '#c97098', '#70c9b4']
+
+function renderDoughnut(canvasId, labels, values, existingChart, setChart) {
+  const ctx = document.getElementById(canvasId)
+  if (!ctx) return
+  if (existingChart) existingChart.destroy()
+  setChart(new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: DOUGHNUT_COLORS, borderWidth: 1, borderColor: '#1e1e32' }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#8888aa', font: { size: 11 }, padding: 10 } }
+      }
+    }
+  }))
 }
 
 // ── ТОП ТОВАРОВ ───────────────────────────────────────────────────────────────
 
 async function loadTopItems() {
   try {
-    const items = await api('GET', '/admin/analytics/top-items?period=30')
+    const items = await api('GET', `/admin/analytics/top-items?${dashParams()}`)
     renderTopItems(items)
   } catch (e) { console.error('Ошибка загрузки топ-товаров:', e.message) }
 }
@@ -263,7 +416,7 @@ function renderTopItems(items) {
     </div>`).join('')
 }
 
-const STATUS_LABELS = { new: 'Новый', preparing: 'Готовится', ready: 'Готов', done: 'Выдан' }
+const STATUS_LABELS = { new: 'Новый', preparing: 'Готовится', ready: 'Готов', done: 'Выдан', cancelled: 'Отменён' }
 
 function renderOrders(orders) {
   const list = document.getElementById('orders-list')

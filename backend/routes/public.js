@@ -105,6 +105,8 @@ router.post('/customers', publicWriteLimiter, async (req, res) => {
   // Б-А51: ограничение длины строк от Telegram — защита от мусора в БД
   const first_name = String(check.user.first_name || '').slice(0, 100)
   const username   = String(check.user.username   || '').slice(0, 64)
+  // Б-А88: source приходит из клиента — ограничиваем, чтобы не раздувать БД
+  const source_safe = typeof source === 'string' ? source.slice(0, 50) : 'direct'
 
   // Проверить существует ли клиент
   const { data: existing } = await supabase
@@ -134,7 +136,7 @@ router.post('/customers', publicWriteLimiter, async (req, res) => {
         tg_id,
         first_name,
         username,
-        source: source || 'direct',
+        source: source_safe,
         status: 'visitor',
         referral_code,
         last_seen: new Date().toISOString()
