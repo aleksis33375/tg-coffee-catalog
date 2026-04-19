@@ -1,6 +1,7 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
+const helmet = require('helmet')
 const path = require('path')
 const { createBot }  = require('./bot')
 const { startCron }  = require('./cron')
@@ -9,6 +10,14 @@ const app = express()
 
 // За nginx — доверяем X-Forwarded-For (иначе req.ip = 127.0.0.1 и rate-limit ломается)
 app.set('trust proxy', 1)
+
+// Б-А46: защитные HTTP-заголовки (X-Frame-Options, X-Content-Type-Options и т.д.).
+// CSP отключён — Telegram WebApp инжектит свои скрипты/стили, CSP подкрутим отдельно.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}))
 
 // CORS — разрешаем запросы с Mini App на Vercel и локально
 app.use(cors({

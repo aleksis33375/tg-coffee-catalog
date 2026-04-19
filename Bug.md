@@ -210,7 +210,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:94](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L94)  
 Пустой `catch {}` — ошибка сохранения настроек на первом шаге мастера игнорируется, мастер идёт дальше.  
 Решение: `catch (e) { toast(e.message, true); return }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `catch (e) { toast(e.message, true); return }` вместо пустого catch, мастер останавливается при ошибке
 
 ---
 
@@ -218,7 +218,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:99](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L99)  
 Проверяется только `if (name && pin)`, но не `/^\d{4}$/.test(pin)` — нецифровой или короткий PIN передаётся на backend.  
 Решение: добавить `if (!/^\d{4}$/.test(pin)) { toast('PIN — 4 цифры', true); return }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — валидация `/^\d{4}$/` с toast до POST на бэкенд
 
 ---
 
@@ -226,7 +226,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/routes/admin.js:101](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L101)  
 `!price` ловит `0`, но отрицательная цена (`price = -100`) проходит валидацию и сохраняется.  
 Решение: `if (!category || !name || !price || price <= 0)`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `Number(req.body.price)` + `Number.isFinite(price) && price > 0`, иначе 400
 
 ---
 
@@ -234,7 +234,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/routes/admin.js:369](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L369)  
 Если все `barista_id` в log равны null, `ids = []` и `.in('id', [])` вернёт ошибку от PostgREST.  
 Решение: добавить ранний выход `if (!ids.length) { res.json(data); return }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — ранний return `if (!ids.length) return res.json(data)` перед `.in('id', ids)`
 
 ---
 
@@ -242,7 +242,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:407](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L407)  
 `if (s.logo_url)` показывает превью, но если `logo_url` отсутствует — старое превью остаётся видимым.  
 Решение: добавить `else { prev.classList.add('hidden') }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — else-ветка `prev.classList.add('hidden')` + `prev.removeAttribute('src')`
 
 ---
 
@@ -250,7 +250,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:513](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L513)  
 `msg.oninput = ...` назначается заново при каждом переключении на вкладку «Маркетинг» — предыдущее значение счётчика не сбрасывается.  
 Решение: назначать обработчик один раз в инициализации или сбрасывать счётчик при каждом `loadMarketing()`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — флаг `marketingBound`, `addEventListener('input')` один раз; счётчик пересчитывается при каждом открытии вкладки
 
 ---
 
@@ -258,7 +258,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/routes/admin.js:210](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L210)  
 `Promise.all([...])` не обёрнут в try/catch — при сбое одного из запросов сервер вернёт 500 без JSON-тела, фронтенд получит неразборчивую ошибку.  
 Решение: обернуть в `try/catch`, вернуть `{ error }` при ошибке.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `try/catch` вокруг `Promise.all`, плюс проверка `todayRes.error || weekRes.error || monthRes.error` перед суммированием
 
 ---
 
@@ -362,7 +362,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файлы: [backend/routes/public.js:59](../../../Documents/Projects/tg-coffee-catalog/backend/routes/public.js#L59), [backend/bot.js:35](../../../Documents/Projects/tg-coffee-catalog/backend/bot.js#L35)  
 `Math.random().toString(36).slice(2,10)` теоретически может коллизиться; нет retry при UNIQUE-ошибке.  
 Решение: использовать `crypto.randomBytes(6).toString('base64url')`, обернуть вставку в retry-loop (3 попытки).  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `crypto.randomBytes(6).toString('base64url').slice(0,8).toUpperCase()` + retry до 5 попыток на `23505` и в `public.js`, и в `bot.js`
 
 ---
 
@@ -370,7 +370,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/cron.js:98](../../../Documents/Projects/tg-coffee-catalog/backend/cron.js#L98)  
 `supabase.from('customers').select(...).limit(1000)` — после роста базы клиенты с id > 1000 (по порядку) не получат рассылку.  
 Решение: пагинация по `range(0, 999)`, `range(1000, 1999)`, … либо курсор по `id`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — хелпер `fetchAllPaginated(buildQuery, pageSize=1000)` через `.range()`, применён в `sendBroadcast`, `sendBirthdayGreetings`, `sendInactiveReminders`
 
 ---
 
@@ -378,7 +378,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файлы: [admin/admin.js:78](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L78), [barista/barista.js:354](../../../Documents/Projects/tg-coffee-catalog/barista/barista.js#L354)  
 Украденный токен работает до истечения (admin — 7 дней, barista — 24 ч), даже после logout.  
 Решение: таблица `revoked_tokens` (jti + exp) и проверка в middleware; или короткие access + refresh.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — TTL сокращён: admin 7д → 12ч, barista 24ч → 12ч. Полная отзывная проверка через таблицу `revoked_tokens` — требует миграции схемы, вынесено в отдельный тикет
 
 ---
 
@@ -386,7 +386,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/server.js](../../../Documents/Projects/tg-coffee-catalog/backend/server.js)  
 Нет `X-Frame-Options`, `Content-Security-Policy`, `X-Content-Type-Options` — повышенный риск clickjacking/MIME-sniffing.  
 Решение: `app.use(require('helmet')({ contentSecurityPolicy: false }))` (CSP подкрутим отдельно под Telegram WebApp).  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }))`, добавлен в `package.json`
 
 ---
 
@@ -569,7 +569,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Простыми словами: если клиент два раза быстро нажал «Открыть смену» (или сработал ретрай), оба запроса увидят, что открытой смены нет, и оба вставят новую строку. В итоге у бариста две строки в `shifts` с `closed_at=null`, следующий `/shift/summary` с `.single()` свалится на Supabase-ошибке.  
 Что сделать: добавить UNIQUE-индекс `WHERE closed_at IS NULL` на `barista_id` в БД — второй INSERT упадёт c 23505, поймаем и вернём «смена уже открыта». Либо ловить такое в коде через `maybeSingle()` + повторный select.  
 Рекомендация: **низкий приоритет** — редкая гонка, но ломает весь экран бариста до ручной правки в БД.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `/shift/open`, `/shift/summary`, `/shift/close` переведены на `maybeSingle() + order + limit(1)`; при коде 23505 `/shift/open` возвращает уже открытую смену. Экран больше не ломается даже если в БД осталось >1 открытой строки до миграции UNIQUE-индекса
 
 ---
 
@@ -578,7 +578,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Простыми словами: бариста ищет клиента по `username`. Если введёт `al%ex` или `_user`, Supabase примет эти символы как SQL-LIKE-шаблоны (любые символы), может выдать случайного клиента вместо точного совпадения. Это путаница, не безопасность.  
 Что сделать: экранировать `%` и `_` перед передачей в `.ilike()` — `cleanUsername.replace(/[%_\\]/g, '\\$&')`.  
 Рекомендация: **низкий приоритет** — косметика, но закрывается одной строкой.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `cleanUsername.replace(/[%_\\]/g, '\\$&') + '%'` перед `.ilike()`
 
 ---
 
@@ -591,7 +591,20 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Простыми словами: на экране бариста есть подсказка «Пик заказов за месяц: с 12:00 до 14:00». Но `new Date(o.created_at).getHours()` берёт часы в локальной таймзоне Node-процесса. На Linux-VPS по умолчанию это UTC — значит бариста видит UTC-часы (5:00 вместо 8:00 МСК), что вводит в заблуждение. На localhost в Москве работает корректно, на проде — нет.  
 Что сделать: вычислять час в МСК через `Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false }).format(date)`. По аналогии с уже применённым `dateInTZ()` для Б-А57.  
 Рекомендация: **средний приоритет** — функционально работает, но показывает неправильные часы админу/бариста; ломает доверие к аналитике.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false })` для каждого заказа; пик определяется по московским часам независимо от таймзоны VPS
+
+---
+
+## Баги седьмой волны (диагностика 2026-04-19 после фиксов Б-А25-Б-А67)
+
+### Низкие
+
+**Б-А68 — `wizardFinish()` молча игнорирует ошибки сохранения bot_token и setup-complete**  
+Файл: [admin/admin.js:124](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L124)  
+Простыми словами: на финальном шаге мастера первого запуска админ вводит bot_token и manager_tg_id, жмёт «Готово». Если запрос `/admin/settings` упал (сеть, валидация) — пустой `catch {}` съедает ошибку, дальше сразу идёт `/admin/setup/complete`, и admin попадает в приложение «с настройкой завершена», но без токена. Бот не поднимется, а админ не поймёт почему.  
+Что сделать: по аналогии с Б-А25 — `catch (e) { toast(e.message, true); return }` на оба вызова, не переходить на экран `app`, если одна из двух записей не удалась.  
+Рекомендация: **низкий приоритет** — редкий путь (только первый запуск), но ломает весь онбординг без сообщения.  
+Статус: ✅ исправлен (2026-04-19) — оба вызова обёрнуты в try/catch с toast и early return, `showScreen('app')` выполняется только при успешном завершении настройки
 
 ---
 
@@ -623,13 +636,13 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А22 | 🔵 Низкий | Мёртвый код a.setAttribute('Authorization') | ⬜ не исправлен |
 | Б-А23 | 🔵 Низкий | loadBaristaLog() без пагинации | ⬜ не исправлен |
 | Б-А24 | 🔵 Низкий | renderBroadcastHistory() выводит строку "null" | ⬜ не исправлен |
-| Б-А25 | 🔵 Низкий | wizardNext(1) молча игнорирует ошибку | ⬜ не исправлен |
-| Б-А26 | 🔵 Низкий | wizardNext(3) не валидирует формат PIN | ⬜ не исправлен |
-| Б-А27 | 🔵 Низкий | Backend не валидирует price <= 0 | ⬜ не исправлен |
-| Б-А28 | 🔵 Низкий | barista-log — запрос с пустым ids[] | ⬜ не исправлен |
-| Б-А29 | 🔵 Низкий | loadSettings() не скрывает старое превью лого | ⬜ не исправлен |
-| Б-А30 | 🔵 Низкий | Счётчик символов рассылки переустанавливается | ⬜ не исправлен |
-| Б-А31 | 🔵 Низкий | /orders/stats без try/catch | ⬜ не исправлен |
+| Б-А25 | 🔵 Низкий | wizardNext(1) молча игнорирует ошибку | ✅ исправлен |
+| Б-А26 | 🔵 Низкий | wizardNext(3) не валидирует формат PIN | ✅ исправлен |
+| Б-А27 | 🔵 Низкий | Backend не валидирует price <= 0 | ✅ исправлен |
+| Б-А28 | 🔵 Низкий | barista-log — запрос с пустым ids[] | ✅ исправлен |
+| Б-А29 | 🔵 Низкий | loadSettings() не скрывает старое превью лого | ✅ исправлен |
+| Б-А30 | 🔵 Низкий | Счётчик символов рассылки переустанавливается | ✅ исправлен |
+| Б-А31 | 🔵 Низкий | /orders/stats без try/catch | ✅ исправлен |
 | Б-А32 | 🔵 Низкий | Пароль администратора уязвим к timing-атаке | ✅ исправлен |
 | Б-А33 | 🔴 Критический | Клиент задаёт total заказа сам | ✅ исправлен |
 | Б-А34 | 🔴 Критический | POST /customers не валидирует tg_id (подмена) | ✅ исправлен |
@@ -641,10 +654,10 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А40 | 🟡 Средний | saveItem: orphan-фото в Storage при ошибке | ✅ исправлен |
 | Б-А41 | 🟡 Средний | playBeep плодит AudioContext — beep глохнет после 6 заказов | ✅ исправлен |
 | Б-А42 | 🟡 Средний | barista logout не отписывается от Realtime | ✅ исправлен |
-| Б-А43 | 🔵 Низкий | referral_code без retry на UNIQUE | ⬜ не исправлен |
-| Б-А44 | 🔵 Низкий | Рассылка — limit(1000) без пагинации | ⬜ не исправлен |
-| Б-А45 | 🔵 Низкий | logout не инвалидирует JWT на сервере | ⬜ не исправлен |
-| Б-А46 | 🔵 Низкий | Нет helmet — отсутствуют защитные заголовки | ⬜ не исправлен |
+| Б-А43 | 🔵 Низкий | referral_code без retry на UNIQUE | ✅ исправлен |
+| Б-А44 | 🔵 Низкий | Рассылка — limit(1000) без пагинации | ✅ исправлен |
+| Б-А45 | 🔵 Низкий | logout не инвалидирует JWT на сервере | ✅ исправлен (TTL 12ч) |
+| Б-А46 | 🔵 Низкий | Нет helmet — отсутствуют защитные заголовки | ✅ исправлен |
 | Б-А47 | 🔴 Критический | Нет rate-limit на /barista/login — брутфорс PIN | ✅ исправлен |
 | Б-А48 | 🟡 Средний | XSS в топ-товарах панели бариста | ✅ исправлен |
 | Б-А49 | 🟡 Средний | /barista/orders/status не валидирует status/payment | ✅ исправлен |
@@ -663,6 +676,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А62 | 🟡 Средний | /shift/summary и /shift/close смешивают заказы разных барист | ✅ исправлен |
 | Б-А63 | 🟡 Средний | /admin/broadcast не ограничивает длину сообщения (>4096 → молча падает) | ✅ исправлен |
 | Б-А64 | 🟡 Средний | /admin/broadcast блокирует HTTP-ответ на минуты (gateway timeout) | ✅ исправлен |
-| Б-А65 | 🔵 Низкий | Гонка в POST /shift/open — две открытые смены у одного бариста | ⬜ не исправлен |
-| Б-А66 | 🔵 Низкий | /barista/customers/search не экранирует `%` и `_` в LIKE | ⬜ не исправлен |
-| Б-А67 | 🟡 Средний | /barista/analytics/peak-hours считает часы по таймзоне сервера, не МСК | ⬜ не исправлен |
+| Б-А65 | 🔵 Низкий | Гонка в POST /shift/open — две открытые смены у одного бариста | ✅ исправлен |
+| Б-А66 | 🔵 Низкий | /barista/customers/search не экранирует `%` и `_` в LIKE | ✅ исправлен |
+| Б-А67 | 🟡 Средний | /barista/analytics/peak-hours считает часы по таймзоне сервера, не МСК | ✅ исправлен |
+| Б-А68 | 🔵 Низкий | wizardFinish() молча игнорирует ошибки save settings / setup-complete | ✅ исправлен |

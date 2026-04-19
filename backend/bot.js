@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api')
+const crypto      = require('crypto')
 const supabase    = require('./db')
 
 let bot = null
@@ -32,16 +33,21 @@ function createBot(token, miniAppUrl) {
       .single()
 
     if (!existing) {
-      const referral_code = Math.random().toString(36).slice(2, 10).toUpperCase()
-      await supabase.from('customers').insert({
-        tg_id: tgId,
-        first_name: firstName,
-        username,
-        source,
-        status: 'visitor',
-        referral_code,
-        last_seen: new Date().toISOString()
-      })
+      // Б-А43: криптостойкий referral_code + retry при коллизии UNIQUE
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const referral_code = crypto.randomBytes(6).toString('base64url').slice(0, 8).toUpperCase()
+        const { error } = await supabase.from('customers').insert({
+          tg_id: tgId,
+          first_name: firstName,
+          username,
+          source,
+          status: 'visitor',
+          referral_code,
+          last_seen: new Date().toISOString()
+        })
+        if (!error) break
+        if (error.code !== '23505') break
+      }
     } else {
       await supabase
         .from('customers')

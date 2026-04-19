@@ -38,10 +38,11 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   if (!found) return res.status(401).json({ error: 'Неверный PIN' })
 
+  // Б-А45: короткий TTL — сокращает окно для украденного токена до конца смены
   const token = jwt.sign(
     { role: 'barista', barista_id: found.id, name: found.name },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_BARISTA || '24h' }
+    { expiresIn: process.env.JWT_EXPIRES_BARISTA || '12h' }
   )
 
   res.json({ token, barista_id: found.id, name: found.name })
@@ -53,13 +54,15 @@ router.post('/login', loginLimiter, async (req, res) => {
 router.post('/shift/open', auth('barista'), async (req, res) => {
   const { barista_id } = req.user
 
-  // Проверить нет ли уже открытой смены
+  // Б-А65: maybeSingle — не падаем, если открытых смен 0 или >1 из-за гонки.
   const { data: open } = await supabase
     .from('shifts')
     .select('id, opened_at')
     .eq('barista_id', barista_id)
     .is('closed_at', null)
-    .single()
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (open) return res.json({ shift_id: open.id, opened_at: open.opened_at, already_open: true })
 
@@ -69,7 +72,22 @@ router.post('/shift/open', auth('barista'), async (req, res) => {
     .select()
     .single()
 
-  if (error) return res.status(500).json({ error: error.message })
+  // Б-А65: если параллельный INSERT обогнал (UNIQUE-индекс WHERE closed_at IS NULL),
+  // Postgres вернёт 23505 — возвращаем уже открытую смену вместо 500.
+  if (error) {
+    if (error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('shifts')
+        .select('id, opened_at')
+        .eq('barista_id', barista_id)
+        .is('closed_at', null)
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (existing) return res.json({ shift_id: existing.id, opened_at: existing.opened_at, already_open: true })
+    }
+    return res.status(500).json({ error: error.message })
+  }
   res.json({ shift_id: data.id, opened_at: data.opened_at })
 })
 
@@ -129,12 +147,15 @@ async function collectShiftTotals(barista_id, opened_at) {
 router.get('/shift/summary', auth('barista'), async (req, res) => {
   const { barista_id } = req.user
 
+  // Б-А65: maybeSingle + order — не падаем, если из-за гонки открытых смен оказалось >1
   const { data: shift } = await supabase
     .from('shifts')
     .select('*')
     .eq('barista_id', barista_id)
     .is('closed_at', null)
-    .single()
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (!shift) return res.status(404).json({ error: 'Открытой смены нет' })
 
@@ -146,12 +167,15 @@ router.get('/shift/summary', auth('barista'), async (req, res) => {
 router.post('/shift/close', auth('barista'), async (req, res) => {
   const { barista_id } = req.user
 
+  // Б-А65: maybeSingle + order — устойчивы к гонке двух открытых смен
   const { data: shift } = await supabase
     .from('shifts')
     .select('*')
     .eq('barista_id', barista_id)
     .is('closed_at', null)
-    .single()
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (!shift) return res.status(404).json({ error: 'Открытой смены нет' })
 
@@ -266,9 +290,17 @@ router.get('/analytics/peak-hours', auth('barista'), async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message })
 
+  // Б-А67: считаем час в Europe/Moscow (а не в таймзоне Node-процесса).
+  // На Linux-проде по умолчанию UTC — без явной TZ бариста видел неверные часы.
+  const hourFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    hour12: false
+  })
   const hours = {}
   data.forEach(o => {
-    const h = new Date(o.created_at).getHours()
+    const h = Number(hourFmt.format(new Date(o.created_at)))
+    if (!Number.isFinite(h)) return
     hours[h] = (hours[h] || 0) + 1
   })
 
@@ -293,10 +325,14 @@ router.get('/customers/search', auth('barista'), async (req, res) => {
   const cleanUsername = (username || '').trim().replace('@', '')
   if (!cleanUsername) return res.status(400).json({ error: 'username обязателен' })
 
+  // Б-А66: экранируем LIKE-спецсимволы, чтобы ввод вроде `al%ex` или `_user`
+  // не воспринимался как шаблон и не возвращал случайного клиента
+  const likePattern = cleanUsername.replace(/[%_\\]/g, '\\$&') + '%'
+
   const { data, error } = await supabase
     .from('customers')
     .select('*')
-    .ilike('username', cleanUsername + '%')
+    .ilike('username', likePattern)
     .limit(1)
     .single()
 

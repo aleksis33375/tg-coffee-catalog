@@ -78,8 +78,9 @@ router.post('/login', loginLimiter, async (req, res) => {
   if (pwdBuf.length !== expBuf.length || !crypto.timingSafeEqual(pwdBuf, expBuf)) {
     return res.status(401).json({ error: 'Неверный пароль' })
   }
+  // Б-А45: короткий TTL — уменьшает окно для украденного токена
   const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_ADMIN || '7d'
+    expiresIn: process.env.JWT_EXPIRES_ADMIN || '12h'
   })
   res.json({ token })
 })
@@ -162,8 +163,10 @@ router.get('/menu', auth('admin'), async (req, res) => {
 
 // POST /api/admin/menu/items
 router.post('/menu/items', auth('admin'), async (req, res) => {
-  const { category, name, price, volume, description, photo_url, badge, emoji, gradient } = req.body
-  if (!category || !name || !price) return res.status(400).json({ error: 'category, name, price обязательны' })
+  const { category, name, volume, description, photo_url, badge, emoji, gradient } = req.body
+  if (!category || !name) return res.status(400).json({ error: 'category, name, price обязательны' })
+  const price = Number(req.body.price)
+  if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'price должен быть положительным числом' })
 
   const { data: maxSort } = await supabase.from('menu_items').select('sort_order').order('sort_order', { ascending: false }).limit(1)
   const sort_order = maxSort?.[0]?.sort_order + 1 || 1
@@ -297,19 +300,28 @@ router.get('/orders/stats', auth('admin'), async (req, res) => {
   const weekAgo    = new Date(now - 7  * 86400000).toISOString()
   const monthAgo   = new Date(now - 30 * 86400000).toISOString()
 
-  const [todayRes, weekRes, monthRes] = await Promise.all([
-    supabase.from('orders').select('total').gte('created_at', todayStart).eq('status', 'done'),
-    supabase.from('orders').select('total').gte('created_at', weekAgo).eq('status', 'done'),
-    supabase.from('orders').select('total').gte('created_at', monthAgo).eq('status', 'done')
-  ])
+  try {
+    const [todayRes, weekRes, monthRes] = await Promise.all([
+      supabase.from('orders').select('total').gte('created_at', todayStart).eq('status', 'done'),
+      supabase.from('orders').select('total').gte('created_at', weekAgo).eq('status', 'done'),
+      supabase.from('orders').select('total').gte('created_at', monthAgo).eq('status', 'done')
+    ])
 
-  const sum = arr => (arr || []).reduce((s, o) => s + (o.total || 0), 0)
+    if (todayRes.error || weekRes.error || monthRes.error) {
+      const err = todayRes.error || weekRes.error || monthRes.error
+      return res.status(500).json({ error: err.message })
+    }
 
-  res.json({
-    today: { revenue: sum(todayRes.data), orders: todayRes.data?.length || 0 },
-    week:  { revenue: sum(weekRes.data),  orders: weekRes.data?.length  || 0 },
-    month: { revenue: sum(monthRes.data), orders: monthRes.data?.length || 0 }
-  })
+    const sum = arr => (arr || []).reduce((s, o) => s + (o.total || 0), 0)
+
+    res.json({
+      today: { revenue: sum(todayRes.data), orders: todayRes.data?.length || 0 },
+      week:  { revenue: sum(weekRes.data),  orders: weekRes.data?.length  || 0 },
+      month: { revenue: sum(monthRes.data), orders: monthRes.data?.length || 0 }
+    })
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'Не удалось получить статистику' })
+  }
 })
 
 // ─── БАРИСТЫ ─────────────────────────────────────────────────────────────────
@@ -462,6 +474,7 @@ router.get('/barista-log', auth('admin'), async (req, res) => {
   // Подтягиваем имена баристы отдельным запросом
   if (data?.length) {
     const ids = [...new Set(data.map(r => r.barista_id).filter(Boolean))]
+    if (!ids.length) return res.json(data)
     const { data: baristas } = await supabase
       .from('baristas')
       .select('id, name')

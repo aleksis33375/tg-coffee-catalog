@@ -3,6 +3,21 @@ const supabase = require('./db')
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
+// Б-А44: постраничная выгрузка клиентов, чтобы рассылки/напоминания не обрывались на 1000.
+async function fetchAllPaginated(buildQuery, pageSize = 1000) {
+  const out = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+    if (error) throw error
+    if (!data?.length) break
+    out.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return out
+}
+
 // ── ЗАПУСК ВСЕХ ЗАДАЧ ─────────────────────────────────────────────────────────
 
 function startCron(bot) {
@@ -28,10 +43,9 @@ async function sendBirthdayGreetings(bot) {
   const mmdd = String(now.getMonth() + 1).padStart(2, '0') + '-' +
                String(now.getDate()).padStart(2, '0')
 
-  const { data: customers } = await supabase
-    .from('customers')
-    .select('tg_id, first_name')
-    .eq('birthday', mmdd)
+  const customers = await fetchAllPaginated(() =>
+    supabase.from('customers').select('tg_id, first_name').eq('birthday', mmdd)
+  ).catch(e => { console.error('Birthday fetch failed:', e.message); return [] })
 
   if (!customers?.length) return
 
@@ -57,12 +71,13 @@ async function sendBirthdayGreetings(bot) {
 async function sendInactiveReminders(bot) {
   const cutoff = new Date(Date.now() - 14 * 86400000).toISOString()
 
-  const { data: customers } = await supabase
-    .from('customers')
-    .select('tg_id, first_name')
-    .eq('status', 'buyer')
-    .lt('last_seen', cutoff)
-    .limit(200)
+  const customers = await fetchAllPaginated(() =>
+    supabase
+      .from('customers')
+      .select('tg_id, first_name')
+      .eq('status', 'buyer')
+      .lt('last_seen', cutoff)
+  ).catch(e => { console.error('Inactive fetch failed:', e.message); return [] })
 
   if (!customers?.length) return
 
@@ -85,17 +100,21 @@ async function sendInactiveReminders(bot) {
 // ── РУЧНАЯ РАССЫЛКА (вызывается из /api/admin/broadcast) ──────────────────────
 
 async function sendBroadcast(bot, message, target) {
-  let query = supabase.from('customers').select('tg_id').not('tg_id', 'is', null)
-
-  if (target === 'buyers') {
-    query = query.eq('status', 'buyer')
-  } else if (target === 'inactive') {
-    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString()
-    query = query.eq('status', 'buyer').lt('last_seen', cutoff)
+  const buildQuery = () => {
+    let q = supabase.from('customers').select('tg_id').not('tg_id', 'is', null)
+    if (target === 'buyers') {
+      q = q.eq('status', 'buyer')
+    } else if (target === 'inactive') {
+      const cutoff = new Date(Date.now() - 14 * 86400000).toISOString()
+      q = q.eq('status', 'buyer').lt('last_seen', cutoff)
+    }
+    return q
   }
-  // target === 'all' — без доп. фильтра
 
-  const { data: customers } = await query.limit(1000)
+  // Б-А44: постраничная выгрузка — рассылка идёт на всех, а не на первую 1000
+  const customers = await fetchAllPaginated(buildQuery)
+    .catch(e => { console.error('Broadcast fetch failed:', e.message); return [] })
+
   if (!customers?.length) return { sent: 0, total: 0 }
 
   let sent = 0

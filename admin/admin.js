@@ -91,15 +91,24 @@ async function wizardNext(step) {
     const tagline = document.getElementById('w-tagline').value.trim()
     const address = document.getElementById('w-address').value.trim()
     if (name) {
-      try { await api('PUT', '/admin/settings', { cafe_name: name, tagline, address }) } catch {}
+      try {
+        await api('PUT', '/admin/settings', { cafe_name: name, tagline, address })
+      } catch (e) {
+        toast(e.message, true)
+        return
+      }
     }
   }
   if (step === 3) {
     const name = document.getElementById('w-barista-name').value.trim()
     const pin = document.getElementById('w-barista-pin').value.trim()
     if (name && pin) {
-      try { await api('POST', '/admin/baristas', { name, pin }) } catch (e) {
-        if (e.message.includes('PIN')) { toast(e.message, true); return }
+      if (!/^\d{4}$/.test(pin)) { toast('PIN — 4 цифры', true); return }
+      try {
+        await api('POST', '/admin/baristas', { name, pin })
+      } catch (e) {
+        toast(e.message, true)
+        return
       }
     }
   }
@@ -116,9 +125,19 @@ async function wizardFinish() {
   const token = document.getElementById('w-bot-token').value.trim()
   const mgr   = document.getElementById('w-manager-id').value.trim()
   if (token || mgr) {
-    try { await api('PUT', '/admin/settings', { bot_token: token, manager_tg_id: mgr }) } catch {}
+    try {
+      await api('PUT', '/admin/settings', { bot_token: token, manager_tg_id: mgr })
+    } catch (e) {
+      toast(e.message, true)
+      return
+    }
   }
-  await api('PUT', '/admin/setup/complete', {})
+  try {
+    await api('PUT', '/admin/setup/complete', {})
+  } catch (e) {
+    toast(e.message, true)
+    return
+  }
   showScreen('app')
   loadDashboard()
 }
@@ -437,10 +456,13 @@ async function loadSettings() {
     document.getElementById('s-tagline').value   = s.tagline   || ''
     document.getElementById('s-address').value   = s.address   || ''
     document.getElementById('s-manager-id').value = s.manager_tg_id || ''
+    const prev = document.getElementById('s-logo-preview')
     if (s.logo_url) {
-      const prev = document.getElementById('s-logo-preview')
       prev.src = s.logo_url
       prev.classList.remove('hidden')
+    } else {
+      prev.classList.add('hidden')
+      prev.removeAttribute('src')
     }
     const { barista_can_edit_menu } = await api('GET', '/admin/barista/settings')
     document.getElementById('s-barista-menu').checked = barista_can_edit_menu
@@ -620,17 +642,23 @@ async function toggleBarista(id, active) {
 
 // ── МАРКЕТИНГ ─────────────────────────────────────────────────────────────────
 
+let marketingBound = false
+
 async function loadMarketing() {
   loadBroadcastHistory()
 
-  // Счётчик символов в поле сообщения
   const msg = document.getElementById('bc-message')
   const counter = document.getElementById('bc-counter')
   if (msg && counter) {
-    msg.oninput = () => {
-      const len = msg.value.length
-      counter.textContent = len ? `${len} символов` : ''
+    if (!marketingBound) {
+      msg.addEventListener('input', () => {
+        const len = msg.value.length
+        counter.textContent = len ? `${len} символов` : ''
+      })
+      marketingBound = true
     }
+    const len = msg.value.length
+    counter.textContent = len ? `${len} символов` : ''
   }
 }
 
