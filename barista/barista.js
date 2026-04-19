@@ -179,7 +179,7 @@ async function loadOrders() {
   try {
     const orders = await api('GET', '/barista/orders')
     renderOrders(orders)
-  } catch {}
+  } catch (e) { toast('Не удалось загрузить заказы: ' + e.message) }
 }
 
 function renderOrders(orders) {
@@ -418,8 +418,9 @@ async function searchCustomer() {
     document.getElementById('found-username').textContent =
       customer.username ? ('@' + customer.username) : 'Без @username'
 
-    // Кружки из прогресса (promo_id = 1 — cups_loyalty, если есть)
-    const cups = Array.isArray(progress) ? progress.find(p => p.progress > 0) : null
+    const cups = Array.isArray(progress)
+      ? progress.find(p => p.promo_type === 'loyalty_cups')
+      : null
     document.getElementById('found-cups').textContent = cups ? cups.progress : 0
 
     document.getElementById('search-result').classList.remove('hidden')

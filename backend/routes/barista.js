@@ -340,10 +340,16 @@ router.get('/customers/search', auth('barista'), async (req, res) => {
 
   const { data: progress } = await supabase
     .from('customer_promo_progress')
-    .select('promo_id, progress')
+    .select('promo_id, progress, promos(type)')
     .eq('customer_tg_id', data.tg_id)
 
-  res.json({ customer: data, progress: progress || [] })
+  const progressMapped = (progress || []).map(p => ({
+    promo_id:   p.promo_id,
+    progress:   p.progress,
+    promo_type: p.promos?.type || null
+  }))
+
+  res.json({ customer: data, progress: progressMapped })
 })
 
 // PUT /api/barista/customers/:tg_id/birthday

@@ -183,7 +183,7 @@ async function loadChart(period) {
   try {
     const data = await api('GET', `/admin/analytics/chart?period=${period}`)
     renderChart(data)
-  } catch {}
+  } catch (e) { console.error('Ошибка загрузки графика:', e.message) }
 }
 
 function setChartPeriod(period, btn) {
@@ -245,7 +245,7 @@ async function loadTopItems() {
   try {
     const items = await api('GET', '/admin/analytics/top-items?period=30')
     renderTopItems(items)
-  } catch {}
+  } catch (e) { console.error('Ошибка загрузки топ-товаров:', e.message) }
 }
 
 function renderTopItems(items) {
@@ -522,7 +522,8 @@ async function saveBaristaSettings() {
   const val = document.getElementById('s-barista-menu').checked
   try {
     await api('PUT', '/admin/barista/settings', { barista_can_edit_menu: val })
-  } catch {}
+    toast('Настройки бариста сохранены')
+  } catch (e) { toast(e.message, true) }
 }
 
 // ── БАРИСТЫ ──────────────────────────────────────────────────────────────────
@@ -705,7 +706,7 @@ async function loadBroadcastHistory() {
   try {
     const list = await api('GET', '/admin/broadcasts')
     renderBroadcastHistory(list)
-  } catch {}
+  } catch (e) { console.error('Ошибка загрузки истории рассылок:', e.message) }
 }
 
 const TARGET_LABELS = { all: 'Все', buyers: 'Покупатели', inactive: 'Неактивные' }

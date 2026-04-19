@@ -268,7 +268,8 @@ router.get('/orders', auth('admin'), async (req, res) => {
   const offset = Math.max(parseInt(req.query.offset) || 0, 0)
   let query = supabase.from('orders').select('*, customers(first_name, username)').order('created_at', { ascending: false }).range(offset, offset + limit - 1)
   if (status) query = query.eq('status', status)
-  if (date) query = query.gte('created_at', date + 'T00:00:00').lte('created_at', date + 'T23:59:59')
+  // Б-А73: границы дня в МСК (UTC+3), иначе вечерние заказы после 21:00 МСК попадают в следующий UTC-день
+  if (date) query = query.gte('created_at', date + 'T00:00:00+03:00').lte('created_at', date + 'T23:59:59+03:00')
   const { data, error } = await query
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
