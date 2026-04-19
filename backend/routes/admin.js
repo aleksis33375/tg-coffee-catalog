@@ -275,18 +275,38 @@ router.put('/menu/items/:id/sort', auth('admin'), async (req, res) => {
 // ─── ЗАКАЗЫ ──────────────────────────────────────────────────────────────────
 
 // GET /api/admin/orders
+// Б-А89: убран Supabase relationship join customers(...) — он требует FK в схеме БД,
+// которого может не быть, из-за чего весь эндпоинт падал с 500 и заказы не грузились.
+// Имена клиентов подтягиваем отдельным запросом и мержим вручную.
 router.get('/orders', auth('admin'), async (req, res) => {
   const { date, status } = req.query
   // Б-А55: кап limit, чтобы недобросовестный клиент не выкачивал всю базу одним запросом
   const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 50, 1), 200)
   const offset = Math.max(parseInt(req.query.offset) || 0, 0)
-  let query = supabase.from('orders').select('*, customers(first_name, username)').order('created_at', { ascending: false }).range(offset, offset + limit - 1)
+  let query = supabase.from('orders').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1)
   if (status) query = query.eq('status', status)
   // Б-А73: границы дня в МСК (UTC+3), иначе вечерние заказы после 21:00 МСК попадают в следующий UTC-день
   if (date) query = query.gte('created_at', date + 'T00:00:00+03:00').lte('created_at', date + 'T23:59:59+03:00')
   const { data, error } = await query
   if (error) return res.status(500).json({ error: error.message })
-  res.json(data)
+
+  // Подтянуть имена клиентов отдельным запросом (не зависит от FK)
+  if (data?.length) {
+    const tgIds = [...new Set(data.map(o => o.customer_tg_id).filter(Boolean))]
+    if (tgIds.length) {
+      const { data: custs } = await supabase
+        .from('customers')
+        .select('tg_id, first_name, username')
+        .in('tg_id', tgIds)
+      if (custs?.length) {
+        const custMap = {}
+        custs.forEach(c => { custMap[c.tg_id] = c })
+        data.forEach(o => { o.customers = custMap[o.customer_tg_id] || null })
+      }
+    }
+  }
+
+  res.json(data || [])
 })
 
 // PUT /api/admin/orders/:id/status

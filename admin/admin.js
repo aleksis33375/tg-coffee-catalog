@@ -218,7 +218,12 @@ async function loadOrders() {
   try {
     const orders = await api('GET', '/admin/orders?limit=20')
     renderOrders(orders)
-  } catch (e) { console.error('Ошибка загрузки заказов:', e.message) }
+  } catch (e) {
+    console.error('Ошибка загрузки заказов:', e.message)
+    // Б-А89: при ошибке показываем сообщение вместо вечного «Загрузка...»
+    const list = document.getElementById('orders-list')
+    if (list) list.innerHTML = `<div class="loading">Не удалось загрузить заказы: ${escapeHtml(e.message)}</div>`
+  }
 }
 
 // ── ГЛАВНЫЙ ГРАФИК (Б-А78: line) ─────────────────────────────────────────────
@@ -398,7 +403,12 @@ async function loadTopItems() {
   try {
     const items = await api('GET', `/admin/analytics/top-items?${dashParams()}`)
     renderTopItems(items)
-  } catch (e) { console.error('Ошибка загрузки топ-товаров:', e.message) }
+  } catch (e) {
+    console.error('Ошибка загрузки топ-товаров:', e.message)
+    // Б-А91: показываем ошибку вместо вечного «Загрузка...»
+    const el = document.getElementById('top-items-list')
+    if (el) el.innerHTML = `<div class="loading">Не удалось загрузить: ${escapeHtml(e.message)}</div>`
+  }
 }
 
 function renderTopItems(items) {
@@ -859,7 +869,12 @@ async function loadBroadcastHistory() {
   try {
     const list = await api('GET', '/admin/broadcasts')
     renderBroadcastHistory(list)
-  } catch (e) { console.error('Ошибка загрузки истории рассылок:', e.message) }
+  } catch (e) {
+    console.error('Ошибка загрузки истории рассылок:', e.message)
+    // Б-А90: показываем ошибку вместо вечного «Загрузка...»
+    const el = document.getElementById('broadcasts-list')
+    if (el) el.innerHTML = `<div class="loading">Не удалось загрузить историю: ${escapeHtml(e.message)}</div>`
+  }
 }
 
 const TARGET_LABELS = { all: 'Все', buyers: 'Покупатели', inactive: 'Неактивные' }
