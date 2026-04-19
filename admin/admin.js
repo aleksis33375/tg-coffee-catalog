@@ -639,14 +639,17 @@ async function sendBroadcast() {
   const target  = document.getElementById('bc-target').value
 
   if (!message) { toast('Введи текст сообщения', true); return }
+  // Б-А63: Telegram не принимает сообщения длиннее 4096 символов
+  if (message.length > 4096) { toast('Сообщение слишком длинное: максимум 4096 символов', true); return }
 
   const btn = document.getElementById('bc-send-btn')
   btn.disabled = true
   btn.textContent = 'Отправка...'
 
   try {
-    const { sent, total } = await api('POST', '/admin/broadcast', { message, target })
-    toast(`Отправлено ${sent} из ${total} клиентов`)
+    // Б-А64: бэкенд ставит рассылку в очередь и сразу отвечает — не ждём конца отправки в HTTP
+    await api('POST', '/admin/broadcast', { message, target })
+    toast('Рассылка запущена. Обновите историю через минуту.')
     document.getElementById('bc-message').value = ''
     document.getElementById('bc-counter').textContent = ''
     loadBroadcastHistory()

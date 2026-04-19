@@ -551,22 +551,39 @@ router.get('/broadcasts', auth('admin'), async (req, res) => {
 // POST /api/admin/broadcast — отправить рассылку
 router.post('/broadcast', auth('admin'), async (req, res) => {
   const { message, target } = req.body
-  if (!message?.trim()) return res.status(400).json({ error: 'Текст сообщения обязателен' })
+  const text = typeof message === 'string' ? message.trim() : ''
+  if (!text) return res.status(400).json({ error: 'Текст сообщения обязателен' })
+  // Б-А63: Telegram отклоняет сообщения длиннее 4096 символов — валидируем на входе,
+  // чтобы не ловить молчаливые ошибки в цикле и не получать «отправлено 0 из 800»
+  if (text.length > 4096) {
+    return res.status(400).json({ error: 'Сообщение слишком длинное: максимум 4096 символов' })
+  }
 
   const bot = req.app.locals.bot
   if (!bot) return res.status(503).json({ error: 'Бот не запущен' })
 
+  const segment = target || 'all'
+
+  // Б-А64: рассылка не должна держать HTTP-соединение — для 1000+ клиентов это
+  // десятки секунд, nginx/браузер рвут по таймауту, админ жмёт повторно → дубли.
+  // Пишем строку `broadcasts` со статусом, сразу возвращаем id, отправляем в фоне.
+  const { data: bc, error: insErr } = await supabase.from('broadcasts').insert({
+    text, segment, sent_to: 0, sent: false
+  }).select().single()
+
+  if (insErr) return res.status(500).json({ error: insErr.message })
+
   const { sendBroadcast } = require('../cron')
-  const { sent, total } = await sendBroadcast(bot, message.trim(), target || 'all')
+  sendBroadcast(bot, text, segment)
+    .then(({ sent, total }) =>
+      supabase.from('broadcasts').update({ sent_to: sent, sent: true }).eq('id', bc.id)
+    )
+    .catch(e => {
+      console.error('broadcast failed:', e?.message || e)
+      supabase.from('broadcasts').update({ sent: false }).eq('id', bc.id)
+    })
 
-  await supabase.from('broadcasts').insert({
-    text:     message.trim(),
-    segment:  target || 'all',
-    sent_to:  sent,
-    sent:     true
-  })
-
-  res.json({ sent, total })
+  res.json({ broadcast_id: bc.id, status: 'queued' })
 })
 
 module.exports = router
