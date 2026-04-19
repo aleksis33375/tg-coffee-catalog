@@ -69,15 +69,22 @@ async function checkSetup() {
       showScreen('app')
       loadDashboard()
     }
-  } catch {
-    showScreen('app')
-    loadDashboard()
+  } catch (e) {
+    // Б-А17: ошибка сети — остаёмся на login-экране и сообщаем причину
+    toast('Не удалось подключиться к серверу: ' + e.message, true)
+    showScreen('login')
   }
 }
 
 function logout() {
   TOKEN = ''
   localStorage.removeItem('admin_token')
+  // Б-А18: сброс состояния — предотвращает артефакты данных при повторном входе
+  menuItems = []
+  editingItemId = null
+  baristas = []
+  marketingBound = false
+  if (revenueChart) { revenueChart.destroy(); revenueChart = null }
   showScreen('login')
 }
 
@@ -153,15 +160,19 @@ async function loadDashboard() {
     document.getElementById('stat-week-orders').textContent = stats.week.orders + ' заказов'
     document.getElementById('stat-month-revenue').textContent = stats.month.revenue.toLocaleString('ru') + ' ₽'
     document.getElementById('stat-month-orders').textContent = stats.month.orders + ' заказов'
-  } catch {}
+  } catch (e) { console.error('Ошибка загрузки статистики:', e.message) }
 
   loadChart(7)
   loadTopItems()
+  loadOrders()
+}
 
+// Б-А16: выделено из loadDashboard — перезагружаем только заказы без пересборки графика
+async function loadOrders() {
   try {
     const orders = await api('GET', '/admin/orders?limit=20')
     renderOrders(orders)
-  } catch {}
+  } catch (e) { console.error('Ошибка загрузки заказов:', e.message) }
 }
 
 // ── ГРАФИК ────────────────────────────────────────────────────────────────────
@@ -284,7 +295,7 @@ async function setOrderStatus(id, status) {
   try {
     await api('PUT', `/admin/orders/${id}/status`, { status })
     toast('Статус обновлён')
-    loadDashboard()
+    loadOrders()
   } catch (e) { toast(e.message, true) }
 }
 
@@ -306,10 +317,10 @@ function renderMenu() {
   list.innerHTML = menuItems.map(item => `
     <div class="menu-item">
       <div class="menu-item-info">
-        <div class="menu-item-name">${item.emoji || ''} ${item.name} ${item.badge ? `<span class="status-badge status-new">${item.badge}</span>` : ''}</div>
-        <div class="menu-item-meta">${item.category} · ${item.volume || ''}</div>
+        <div class="menu-item-name">${escapeHtml(item.emoji || '')} ${escapeHtml(item.name)} ${item.badge ? `<span class="status-badge status-new">${escapeHtml(item.badge)}</span>` : ''}</div>
+        <div class="menu-item-meta">${escapeHtml(item.category)} · ${escapeHtml(item.volume || '')}</div>
       </div>
-      <div class="menu-item-price">${item.price} ₽</div>
+      <div class="menu-item-price">${Number(item.price).toLocaleString('ru')} ₽</div>
       <div class="menu-item-actions">
         <button class="toggle ${item.available ? 'on' : ''}" onclick="toggleItem(${item.id}, ${!item.available})"></button>
         <button onclick="editItem(${item.id})">✏️</button>
@@ -466,15 +477,16 @@ async function loadSettings() {
     }
     const { barista_can_edit_menu } = await api('GET', '/admin/barista/settings')
     document.getElementById('s-barista-menu').checked = barista_can_edit_menu
-  } catch {}
+  } catch (e) { toast('Ошибка загрузки настроек: ' + e.message, true) }
   loadBaristas()
 }
 
 async function saveSettings() {
   const body = {
-    cafe_name: document.getElementById('s-cafe-name').value.trim(),
-    tagline:   document.getElementById('s-tagline').value.trim(),
-    address:   document.getElementById('s-address').value.trim(),
+    cafe_name:     document.getElementById('s-cafe-name').value.trim(),
+    tagline:       document.getElementById('s-tagline').value.trim(),
+    address:       document.getElementById('s-address').value.trim(),
+    manager_tg_id: document.getElementById('s-manager-id').value.trim(),
   }
 
   const logoFile = document.getElementById('s-logo').files[0]
@@ -537,7 +549,7 @@ async function loadBaristas() {
         </div>
       </div>
     `).join('')
-  } catch {}
+  } catch (e) { toast(e.message, true) }
 }
 
 // Б-А09: форма добавления бариста (заменяет blocking prompt)
@@ -703,7 +715,7 @@ function renderBroadcastHistory(list) {
   if (!list.length) { el.innerHTML = '<div class="loading">Рассылок ещё не было</div>'; return }
   el.innerHTML = list.map(b => {
     const date = new Date(b.created_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-    const segment = TARGET_LABELS[b.segment] || b.segment
+    const segment = TARGET_LABELS[b.segment] || b.segment || '—'
     return `<div class="broadcast-row">
       <div class="broadcast-row-msg">${escapeHtml(b.text || '')}</div>
       <div class="broadcast-row-meta">${date} · ${segment} · ${b.sent_to ?? 0} получателей</div>
@@ -719,10 +731,6 @@ function escapeHtml(str) {
 
 function exportCustomersCSV() {
   const url = '/api/admin/customers/export'
-  const a = document.createElement('a')
-  a.href = url
-  a.setAttribute('Authorization', 'Bearer ' + TOKEN) // не работает через href — используем fetch
-  // Fetch + blob download
   fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } })
     .then(r => {
       if (!r.ok) throw new Error('Ошибка экспорта')
@@ -781,22 +789,46 @@ const ACTION_LABELS = {
   cups_reset:     'Кружки сброшены',
 }
 
-async function loadBaristaLog() {
+// Б-А23: пагинация лога — хранит текущий оффсет, «Загрузить ещё» подгружает следующую страницу
+let logOffset = 0
+const LOG_PAGE = 30
+
+async function loadBaristaLog(reset = true) {
   const el = document.getElementById('barista-log-list')
-  el.innerHTML = '<div class="loading">Загрузка...</div>'
+  if (reset) {
+    logOffset = 0
+    el.innerHTML = '<div class="loading">Загрузка...</div>'
+  }
   try {
-    const data = await api('GET', '/admin/barista-log?limit=30')
-    if (!data.length) { el.innerHTML = '<div class="loading">Действий пока нет</div>'; return }
-    el.innerHTML = data.map(row => {
+    const data = await api('GET', `/admin/barista-log?limit=${LOG_PAGE}&offset=${logOffset}`)
+
+    const rows = data.map(row => {
       const date = new Date(row.created_at).toLocaleString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-      const barista = row.barista_name || `#${row.barista_id}`
-      const action  = ACTION_LABELS[row.barista_action] || row.barista_action
+      const barista = escapeHtml(row.barista_name || `#${row.barista_id}`)
+      const action  = ACTION_LABELS[row.barista_action] || escapeHtml(row.barista_action)
       const detail  = row.details ? ' · ' + formatLogDetail(row.barista_action, row.details) : ''
       return `<div class="log-row">
         <div class="log-row-action">${action}${detail}</div>
         <div class="log-row-meta">${barista} · ${date}</div>
       </div>`
     }).join('')
+
+    if (reset) {
+      if (!data.length) { el.innerHTML = '<div class="loading">Действий пока нет</div>'; return }
+      el.innerHTML = rows
+    } else {
+      const moreBtn = document.getElementById('log-more-btn')
+      if (moreBtn) moreBtn.remove()
+      el.insertAdjacentHTML('beforeend', rows)
+    }
+
+    logOffset += data.length
+    if (data.length === LOG_PAGE) {
+      el.insertAdjacentHTML('beforeend',
+        '<button id="log-more-btn" class="btn-ghost" style="width:100%;margin-top:8px" ' +
+        'onclick="loadBaristaLog(false)">Загрузить ещё</button>'
+      )
+    }
   } catch (e) { toast(e.message, true) }
 }
 

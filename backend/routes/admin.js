@@ -461,13 +461,14 @@ router.get('/customers/export', auth('admin'), async (req, res) => {
 router.get('/barista-log', auth('admin'), async (req, res) => {
   // Б-А60: кап limit по аналогии с /orders и /customers, чтобы один запрос
   // не выкачал всю таблицу логов и не подвесил сервер
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200)
+  const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 50, 1), 200)
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0)
 
   const { data, error } = await supabase
     .from('barista_log')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .range(offset, offset + limit - 1)
 
   if (error) return res.status(500).json({ error: error.message })
 

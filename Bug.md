@@ -122,7 +122,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:290](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L290)  
 Данные вводит сам администратор, поэтому менее критично, но XSS всё равно возможен.  
 Решение: применить `escapeHtml()` к `item.name` и `item.badge`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `escapeHtml()` для `item.emoji`, `item.name`, `item.badge`, `item.category`, `item.volume` в `renderMenu()`
 
 ---
 
@@ -130,7 +130,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:128](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L128)  
 Пустые `catch {}` — пользователь не видит причину пустого дашборда при сетевой ошибке.  
 Решение: `catch (e) { console.error(e) }` или `toast(e.message, true)`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `catch (e) { console.error('Ошибка загрузки статистики:', e.message) }` вместо пустого catch
 
 ---
 
@@ -138,7 +138,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:266](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L266)  
 После смены статуса заказа вызывается `loadDashboard()` — пересоздаёт график и отправляет 4+ запроса вместо точечного обновления.  
 Решение: выделить `loadOrders()` как отдельную функцию и вызывать только её.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — вынесена отдельная функция `loadOrders()`, `setOrderStatus()` вызывает только её вместо `loadDashboard()`
 
 ---
 
@@ -146,7 +146,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:72](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L72)  
 В `catch` показывает экран `app` вместо уведомления об ошибке подключения.  
 Решение: показывать `toast` и оставаться на login-экране при ошибке сети.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `catch (e) { toast('Не удалось подключиться к серверу: ' + e.message, true); showScreen('login') }`
 
 ---
 
@@ -154,7 +154,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:78](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L78)  
 `menuItems`, `editingItemId`, `revenueChart` не обнуляются — артефакты данных при повторном входе.  
 Решение: сбросить все переменные состояния при logout.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — обнуляются `menuItems`, `editingItemId`, `baristas`, `marketingBound`; `revenueChart.destroy()` + `null` перед переходом на login
 
 ---
 
@@ -162,7 +162,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:462](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L462)  
 Пустой `catch {}` — при ошибке загрузки список баристы пуст без объяснения.  
 Решение: `catch (e) { toast(e.message, true) }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `catch (e) { toast(e.message, true) }` с уведомлением об ошибке
 
 ---
 
@@ -170,7 +170,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:417](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L417)  
 `manager_tg_id` не входит в `body` функции `saveSettings` — сохраняется только через `saveBotSettings()`.  
 Решение: включить `manager_tg_id` в `body` или объединить функции.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `manager_tg_id` добавлен в `body` функции `saveSettings()`
 
 ---
 
@@ -178,7 +178,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:399](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L399)  
 Пустой `catch {}` — при ошибке поля настроек остаются пустыми без уведомления.  
 Решение: `catch (e) { toast(e.message, true) }`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `catch (e) { toast('Ошибка загрузки настроек: ' + e.message, true) }`
 
 ---
 
@@ -186,7 +186,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:581](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L581)  
 Атрибут на теге `<a>` не добавляет заголовок в HTTP-запрос — строка бесполезна и вводит в заблуждение.  
 Решение: удалить строку 582.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — мёртвый код `createElement('a')` и `setAttribute('Authorization')` удалены; экспорт работает через `fetch` + `createObjectURL`
 
 ---
 
@@ -194,7 +194,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:630](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L630)  
 Запрашивает только 30 записей, нет кнопки «Загрузить ещё» — история обрезается.  
 Решение: добавить пагинацию или кнопку подгрузки следующей страницы.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `logOffset` + кнопка «Загрузить ещё» (id=`log-more-btn`); backend `/admin/barista-log` переведён с `.limit()` на `.range(offset, offset+limit-1)`
 
 ---
 
@@ -202,7 +202,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:563](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L563)  
 `TARGET_LABELS[b.segment] || b.segment` — если `b.segment` равен `null`, отображается строка "null".  
 Решение: `TARGET_LABELS[b.segment] || b.segment || '—'`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `TARGET_LABELS[b.segment] || b.segment || '—'` исключает отображение строки "null"
 
 ---
 
@@ -608,6 +608,19 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 
 ---
 
+## Баги восьмой волны (аудит 2026-04-19)
+
+### Низкие
+
+**Б-А69 — Панель бариста показывает кружки от первой попавшейся акции, а не от loyalty_cups**  
+Файл: [barista/barista.js:422](../../../Documents/Projects/tg-coffee-catalog/barista/barista.js#L422)  
+Простыми словами: при поиске клиента бариста видит количество накопленных кружек. Но код берёт прогресс у первой акции, где есть любой progress > 0 — вне зависимости от типа акции. Если у клиента активны несколько акций (например, «Скидка на первый» и «Кружки»), и у обеих есть прогресс — бариста увидит кружки от чужой акции. При одной акции работает правильно, но баг проявится при расширении программ лояльности.  
+Что сделать: в `/api/barista/customers/search` сделать JOIN с таблицей `promos` и вернуть `promo_type` в каждой записи прогресса. На фронте фильтровать `progress.find(p => p.promo_type === 'loyalty_cups')`.  
+Рекомендация: **низкий приоритет** — при одной акции лояльности не проявляется. Актуально если добавятся новые типы акций с прогрессом.  
+Статус: ⬜ не исправлен
+
+---
+
 ## Сводная таблица
 
 | ID | Серьёзность | Описание | Статус |
@@ -625,17 +638,17 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А11 | 🟡 Средний | formatLogDetail() выводит undefined при неполных данных | ✅ исправлен |
 | Б-А12 | 🟡 Средний | QR-код с захардкоженным именем бота | ✅ исправлен |
 | Б-А13 | 🟡 Средний | История меню пишется с old_value: null | ✅ исправлен |
-| Б-А14 | 🔵 Низкий | renderMenu() без escaping | ⬜ не исправлен |
-| Б-А15 | 🔵 Низкий | loadDashboard() глотает все ошибки | ⬜ не исправлен |
-| Б-А16 | 🔵 Низкий | setOrderStatus() перезагружает весь дашборд | ⬜ не исправлен |
-| Б-А17 | 🔵 Низкий | checkSetup() при ошибке молча открывает приложение | ⬜ не исправлен |
-| Б-А18 | 🔵 Низкий | logout() не сбрасывает переменные состояния | ⬜ не исправлен |
-| Б-А19 | 🔵 Низкий | loadBaristas() глотает ошибки | ⬜ не исправлен |
-| Б-А20 | 🔵 Низкий | saveSettings() не сохраняет manager_tg_id | ⬜ не исправлен |
-| Б-А21 | 🔵 Низкий | loadSettings() глотает ошибки | ⬜ не исправлен |
-| Б-А22 | 🔵 Низкий | Мёртвый код a.setAttribute('Authorization') | ⬜ не исправлен |
-| Б-А23 | 🔵 Низкий | loadBaristaLog() без пагинации | ⬜ не исправлен |
-| Б-А24 | 🔵 Низкий | renderBroadcastHistory() выводит строку "null" | ⬜ не исправлен |
+| Б-А14 | 🔵 Низкий | renderMenu() без escaping | ✅ исправлен |
+| Б-А15 | 🔵 Низкий | loadDashboard() глотает все ошибки | ✅ исправлен |
+| Б-А16 | 🔵 Низкий | setOrderStatus() перезагружает весь дашборд | ✅ исправлен |
+| Б-А17 | 🔵 Низкий | checkSetup() при ошибке молча открывает приложение | ✅ исправлен |
+| Б-А18 | 🔵 Низкий | logout() не сбрасывает переменные состояния | ✅ исправлен |
+| Б-А19 | 🔵 Низкий | loadBaristas() глотает ошибки | ✅ исправлен |
+| Б-А20 | 🔵 Низкий | saveSettings() не сохраняет manager_tg_id | ✅ исправлен |
+| Б-А21 | 🔵 Низкий | loadSettings() глотает ошибки | ✅ исправлен |
+| Б-А22 | 🔵 Низкий | Мёртвый код a.setAttribute('Authorization') | ✅ исправлен |
+| Б-А23 | 🔵 Низкий | loadBaristaLog() без пагинации | ✅ исправлен |
+| Б-А24 | 🔵 Низкий | renderBroadcastHistory() выводит строку "null" | ✅ исправлен |
 | Б-А25 | 🔵 Низкий | wizardNext(1) молча игнорирует ошибку | ✅ исправлен |
 | Б-А26 | 🔵 Низкий | wizardNext(3) не валидирует формат PIN | ✅ исправлен |
 | Б-А27 | 🔵 Низкий | Backend не валидирует price <= 0 | ✅ исправлен |
@@ -680,3 +693,4 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А66 | 🔵 Низкий | /barista/customers/search не экранирует `%` и `_` в LIKE | ✅ исправлен |
 | Б-А67 | 🟡 Средний | /barista/analytics/peak-hours считает часы по таймзоне сервера, не МСК | ✅ исправлен |
 | Б-А68 | 🔵 Низкий | wizardFinish() молча игнорирует ошибки save settings / setup-complete | ✅ исправлен |
+| Б-А69 | 🔵 Низкий | Панель бариста: кружки от первой акции с progress > 0, не от loyalty_cups | ⬜ не исправлен |
