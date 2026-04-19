@@ -383,8 +383,10 @@ function renderDoughnut(canvasId, labels, values, existingChart, setChart) {
   const ctx = document.getElementById(canvasId)
   if (!ctx) return
   if (existingChart) existingChart.destroy()
+  const total = values.reduce((s, v) => s + v, 0)
   setChart(new Chart(ctx, {
     type: 'doughnut',
+    plugins: [ChartDataLabels],
     data: {
       labels,
       datasets: [{ data: values, backgroundColor: DOUGHNUT_COLORS, borderWidth: 1, borderColor: '#1e1e32' }]
@@ -392,7 +394,16 @@ function renderDoughnut(canvasId, labels, values, existingChart, setChart) {
     options: {
       responsive: true,
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#8888aa', font: { size: 11 }, padding: 10 } }
+        legend: { position: 'bottom', labels: { color: '#8888aa', font: { size: 11 }, padding: 10 } },
+        datalabels: {
+          color: '#fff',
+          font: { size: 12, weight: 'bold' },
+          formatter: (value) => {
+            if (!total) return ''
+            const pct = Math.round(value / total * 100)
+            return pct >= 5 ? pct + '%' : ''
+          }
+        }
       }
     }
   }))
