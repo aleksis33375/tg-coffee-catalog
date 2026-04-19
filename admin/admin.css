@@ -531,6 +531,8 @@ button:hover { opacity: 0.85; }
   transition: color 0.2s;
 }
 .nav-btn.active { color: var(--accent); }
+.nav-btn-logout { color: #e05c3a; }
+.nav-btn-logout:hover { color: #c0402a; }
 .nav-icon { font-size: 1.4rem; }
 
 /* ── УВЕДОМЛЕНИЕ ────────────────────────────────────────── */
