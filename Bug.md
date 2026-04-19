@@ -96,7 +96,7 @@
 Файл: [admin/admin.js:649](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L649)  
 Если `row.details.cups_after` или `total_cups` отсутствуют — в лог выводится `undefined/undefined`.  
 Решение: добавить fallback: `d.cups_after ?? '?'` и `d.total_cups ?? '?'`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `??` fallback на «—» и `?? 0`, ранний return если `details` не объект
 
 ---
 
@@ -104,7 +104,7 @@
 Файл: [admin/admin.js:605](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L605)  
 URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — не читает `bot_username` из настроек.  
 Решение: читать `bot_username` через `/admin/settings` перед генерацией QR.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `generateQR` стал async, тянет `bot_username` из `/admin/settings`, toast если не задано
 
 ---
 
@@ -112,7 +112,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/routes/admin.js:130-137](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L130)  
 `select('*').eq('id', id).single()` не проверяет ошибку — если товар не найден, `old = null` и запись в `menu_history` создаётся с `old_value: null`.  
 Решение: проверить ошибку/null после select и вернуть 404 если товар не существует.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — PUT /menu/items/:id возвращает 404 если позиции нет, до записи в menu_history
 
 ---
 
@@ -312,7 +312,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [tg-app/app.js:550](../../../Documents/Projects/tg-coffee-catalog/tg-app/app.js#L550)  
 `promos.find(p => p.progress > 0)` — если у клиента несколько активных акций, прогресс чашек может отрисоваться от чужой акции.  
 Решение: `promos.find(p => p.promo_id === state.cupsPromoId)`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — код уже использовал `find(p => p.promo_id === state.cupsPromoId)`, но id теперь приходит из backend (см. Б-А38)
 
 ---
 
@@ -320,7 +320,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файлы: [tg-app/app.js:75](../../../Documents/Projects/tg-coffee-catalog/tg-app/app.js#L75), [backend/routes/barista.js:347](../../../Documents/Projects/tg-coffee-catalog/backend/routes/barista.js#L347)  
 `state.cupsPromoId = 1` и `promoId = promo?.id || 1` — если базовая акция «Кружка за кружкой» создана не первой (например, админ её пересоздал) — id будет другим, система отметок сломается.  
 Решение: искать акцию по `type: 'loyalty_cups'` и кэшировать найденный id, не полагаться на `= 1`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `/api/menu` отдаёт `loyalty.promo_id`, фронтенд берёт его в `state.cupsPromoId`; backend без активной акции возвращает 409 вместо фейкового `id=1`
 
 ---
 
@@ -328,7 +328,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [backend/routes/admin.js:205](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L205)  
 `new Date().toISOString().slice(0,10)` в MSK (UTC+3) после 21:00 уже «завтра» по UTC — вечерние заказы не попадают в статистику за текущий день.  
 Решение: сформировать границы дня в нужной таймзоне (по умолчанию `Europe/Moscow`) или брать таймзону из `settings`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `startOfDayISO(new Date())` возвращает `YYYY-MM-DDT00:00:00+03:00` в МСК
 
 ---
 
@@ -336,7 +336,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [admin/admin.js:374](../../../Documents/Projects/tg-coffee-catalog/admin/admin.js#L374)  
 Фото льётся в Storage первым; если `POST /admin/menu` упадёт — файл останется в bucket бесконечно.  
 Решение: либо сначала создавать запись товара и только затем грузить фото, либо при ошибке `POST /menu` удалять загруженный файл.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — при ошибке сохранения позиции показывается toast о «осиротевшем» фото; при повторном сохранении бариста/админ может удалить orphan вместе с товаром (см. Б-А54)
 
 ---
 
@@ -344,7 +344,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [barista/barista.js:68](../../../Documents/Projects/tg-coffee-catalog/barista/barista.js#L68)  
 `new AudioContext()` создаётся на каждый звуковой сигнал. Chrome ограничивает ~6 контекстов — после 6 заказов бариста перестаёт слышать пинг.  
 Решение: создать один общий `AudioContext` при старте панели и переиспользовать.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — общий `_audioCtx` на сеанс, `ctx.resume()` для iOS
 
 ---
 
@@ -352,7 +352,7 @@ URL `https://t.me/Prototip_Coffee_house_bot?start=cup` зашит в код — 
 Файл: [barista/barista.js:354](../../../Documents/Projects/tg-coffee-catalog/barista/barista.js#L354)  
 При logout канал `supabase.channel(...).subscribe()` не закрывается — при повторном логине подписок становится больше, уведомления дублируются, память течёт.  
 Решение: хранить ссылку на канал и вызывать `supabase.removeChannel(channel)` в logout.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — ссылка `realtimeChannel` + функция `stopRealtime()` вызывается в `closeShift` и перед новым `startRealtime`
 
 ---
 
@@ -408,7 +408,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [barista/barista.js:289](../../../Documents/Projects/tg-coffee-catalog/barista/barista.js#L289)  
 В `loadEmptyState()` `${i.name}` рендерится в `innerHTML` без экранирования (в отличие от `renderOrders`, где `escHtml` применён).  
 Решение: `${escHtml(i.name)}`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `escHtml(i.name)` и `escHtml(i.count)` в `loadEmptyState`
 
 ---
 
@@ -416,7 +416,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/barista.js:191](../../../Documents/Projects/tg-coffee-catalog/backend/routes/barista.js#L191)  
 Бариста (или кто-то с его токеном) может отправить `status: 'hacked'` или `payment: <длинная строка>` — значения запишутся в БД без проверки, сломают статистику смены и фильтры.  
 Решение: whitelist `['new','preparing','ready','done','cancelled']` для status и `['cash','card',null]` для payment.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — whitelist и на admin, и на barista маршрутах, 400 при несоответствии
 
 ---
 
@@ -424,7 +424,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/bot.js:52](../../../Documents/Projects/tg-coffee-catalog/backend/bot.js#L52)  
 `firstName` клиента подставляется в HTML-сообщение (`parse_mode: 'HTML'`). Если имя Telegram = `<b>test</b>` — разметка проявится; теги Telegram (`<a href>`) дадут кликабельную ссылку от имени бота.  
 Решение: экранировать `firstName` перед подстановкой в HTML.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — локальная `escapeHTML` применена к `firstName` перед формированием приветствия
 
 ---
 
@@ -432,7 +432,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/public.js](../../../Documents/Projects/tg-coffee-catalog/backend/routes/public.js)  
 `comment`, `delivery_time`, `first_name`, `username` принимаются без ограничения длины — злоумышленник может послать 1 МБ JSON → разрастание БД, замедление запросов.  
 Решение: обрезать/валидировать длину (comment ≤ 500 симв., time/address ≤ 200 симв.) + `express.json({ limit: '10kb' })` в server.js.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — slice на `comment` ≤ 500, `delivery_time` ≤ 200, `first_name` ≤ 100, `username` ≤ 64, `items.length` ≤ 50, `express.json({ limit: '10kb' })`
 
 ---
 
@@ -440,7 +440,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [tg-app/app.js:createCardHTML](../../../Documents/Projects/tg-coffee-catalog/tg-app/app.js)  
 `item.gradient[0]`, `item.gradient[1]` вставляются в `style="background: linear-gradient(135deg, ${...})"` без проверки. Админ (или украденный admin-токен) может вставить `#fff); background: url(//evil.com/x.jpg` — нарушит верстку и утечёт запрос на внешний домен.  
 Решение: валидатор hex-цвета `/^#[0-9a-f]{3,8}$/i`, иначе fallback на DEFAULT_GRADIENT.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `isHexColor` проверяет оба значения, при невалидном откат к дефолту категории
 
 ---
 
@@ -448,7 +448,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/admin.js:11](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L11)  
 Админ-панель принимает любой файл как «фото» товара — `.exe` с расширением `.jpg`, HTML со скриптом и т.д. В сочетании с nginx static может быть опасно. **Отдельно опасен SVG**: может содержать `<script>` и выполнится при открытии URL картинки из Storage.  
 Решение: `fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype))` — **исключить SVG**.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `ALLOWED_IMAGE_MIMES` whitelist (jpeg/png/webp/gif), SVG и всё остальное блокируется
 
 ---
 
@@ -460,7 +460,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/admin.js:160](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L160)  
 Удаление товара через `/admin/menu/items/:id` убирает запись из БД, но `photo_url` остаётся в bucket `menu-images`. Со временем Storage распухает за счёт мусора.  
 Решение: перед удалением записи вызвать `supabase.storage.from('menu-images').remove([...])`; если путь хранится — чистить bucket.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `extractStoragePath(old.photo_url, 'menu-images')` + `supabase.storage.remove([path])` в DELETE; 404 если позиции нет
 
 ---
 
@@ -468,7 +468,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файлы: [backend/routes/admin.js:196](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L196), [backend/routes/admin.js:284](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L284)  
 Запросы `/admin/orders?limit=999999` или `/admin/customers?limit=999999` вытянут всю БД — нагрузка на Supabase и память Node.  
 Решение: `const limit = Math.min(parseInt(req.query.limit) || 50, 200)`.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — cap 1..200 для `/orders` и `/customers`, offset ≥ 0
 
 ---
 
@@ -476,7 +476,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файлы: [backend/routes/admin.js:174](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L174), [backend/routes/admin.js:274](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L274), [backend/routes/admin.js:296](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L296)  
 Значение `req.body.active` / `vip` / `available` пишется в БД как есть. Если прислать `"yes"`, `null`, объект — пройдёт молча, сломает фильтры Supabase.  
 Решение: `const val = req.body.X === true || req.body.X === 'true'` или 400 если не boolean.  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — `coerceBool` + 400 при невалидном значении для `available`, `active`, `vip`
 
 ---
 
@@ -484,7 +484,7 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/admin.js:412-423](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L412)  
 `o.created_at.slice(0,10)` и `new Date(...).toISOString().slice(0,10)` — UTC. В MSK (UTC+3) заказы после 21:00 попадут в «следующий день» графика.  
 Решение: приводить дату к таймзоне кофейни (MSK по умолчанию).  
-Статус: ⬜ не исправлен
+Статус: ✅ исправлен (2026-04-19) — группировка через `dateInTZ(..., 'Europe/Moscow')` и для данных, и для заполнения пустых дней
 
 ---
 
@@ -492,6 +492,48 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 Файл: [backend/routes/admin.js:96](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L96)  
 `req.file.mimetype.split('/')[1]` для `image/svg+xml` → расширение `svg+xml` в имени файла. Не критично (URL будет странный), но риск поломки ссылок и путаницы для браузера.  
 Решение: whitelist `{ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }`.  
+Статус: ✅ исправлен (2026-04-19) — `MIME_TO_EXT[req.file.mimetype]` (jpg/png/webp/gif), SVG уже отсечён в Б-А53
+
+---
+
+## Баги четвёртой волны (диагностика 2026-04-19 после фиксов средних багов)
+
+> Кратко по-простому: после второго прохода нашлось ещё 4 места, где что-то может сломаться. Пояснения — на человеческом языке, чтобы решить, что править.
+
+### Средние
+
+**Б-А59 — Любой может достать данные клиента по Telegram-ID**  
+Файлы: [backend/routes/public.js:143](../../../Documents/Projects/tg-coffee-catalog/backend/routes/public.js#L143), [backend/routes/public.js:165](../../../Documents/Projects/tg-coffee-catalog/backend/routes/public.js#L165)  
+Простыми словами: эндпоинты `GET /api/customers/:tg_id` и `/api/customers/:tg_id/referral` открыты миру без авторизации. Достаточно знать Telegram-ID клиента — и по обычной ссылке в браузере видно имя, @username, дату рождения, прогресс по кружкам и реферальный код. Telegram-ID не секрет и легко подсматривается из заказов.  
+Что сделать: принимать `init_data` в GET-запросе и сверять, что `tg_id` в подписи совпадает с `tg_id` в URL. Альтернатива — положить эти ручки под JWT, а в Mini App выдавать короткий access-токен после /customers POST.  
+Рекомендация: **средний приоритет** — утечка PII (ФЗ-152 в РФ), особенно даты рождения.  
+Статус: ⬜ не исправлен
+
+---
+
+**Б-А60 — Лог бариста можно вытащить одним запросом на всю БД**  
+Файл: [backend/routes/admin.js:427](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L427)  
+Простыми словами: `GET /admin/barista-log?limit=10000000` не ограничен потолком, как это сделали для `/orders` и `/customers` (см. Б-А55). Один запрос может потянуть всю таблицу логов и подвесить сервер.  
+Что сделать: по аналогии с Б-А55 — `Math.min(parseInt(req.query.limit) || 50, 200)`.  
+Рекомендация: **низкий приоритет, но 1 строка кода** — разумно закрыть сейчас.  
+Статус: ⬜ не исправлен
+
+---
+
+**Б-А61 — PUT `/menu/items/:id/sort` принимает что угодно как `sort_order`**  
+Файл: [backend/routes/admin.js:262](../../../Documents/Projects/tg-coffee-catalog/backend/routes/admin.js#L262)  
+Простыми словами: при сортировке товаров админка отправляет любое значение `sort_order` без проверки. Если туда попадёт строка или отрицательное число — БД примет (колонка integer не падает только на целых), но порядок карточек в меню сломается, и починить можно только руками в базе.  
+Что сделать: `const sort = Number.parseInt(req.body.sort_order, 10)` и 400 если NaN или вне диапазона 0..9999.  
+Рекомендация: **низкий приоритет** — исходит только от админа, но проще закрыть сейчас одной строкой.  
+Статус: ⬜ не исправлен
+
+---
+
+**Б-А62 — В пересменку кружки и деньги смешиваются между барристами**  
+Файлы: [backend/routes/barista.js:90-94](../../../Documents/Projects/tg-coffee-catalog/backend/routes/barista.js#L90), [backend/routes/barista.js:137-141](../../../Documents/Projects/tg-coffee-catalog/backend/routes/barista.js#L137), [backend/routes/barista.js:153-158](../../../Documents/Projects/tg-coffee-catalog/backend/routes/barista.js#L153)  
+Простыми словами: когда бариста А открыл смену в 09:00, а бариста Б — в 11:00, запросы `/shift/summary` и `/shift/close` у обоих считают **все** заказы и кружки по времени с момента открытия **своей** смены. В итоге заказы, выданные другим бариста, попадают в кассовый итог обоих. При пересменке цифры в модалке «Смена закрыта» не бьются с реальным потоком через кассу.  
+Что сделать: фильтровать заказы в `/shift/summary` и `/shift/close` по `barista_id` — либо завести поле `barista_id` в `orders` (кто выдал), либо привязывать `cup_added` / статус `done` к shift_id. Короткий вариант — ограничить запросы `.eq('barista_id', barista_id)` к тому, что сам барриста действительно проставил.  
+Рекомендация: **средний приоритет**, но требует схемных правок — лучше обсудить, оставлять ли «1 смена на кассу» или переходить к учёту по бариста.  
 Статус: ⬜ не исправлен
 
 ---
@@ -510,9 +552,9 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А08 | 🟡 Средний | Нет guard в toggleBarista() | ✅ исправлен |
 | Б-А09 | 🟡 Средний | showAddBarista() использует prompt() | ✅ исправлен |
 | Б-А10 | 🟡 Средний | changePin() использует prompt() | ✅ исправлен |
-| Б-А11 | 🟡 Средний | formatLogDetail() выводит undefined при неполных данных | ⬜ не исправлен |
-| Б-А12 | 🟡 Средний | QR-код с захардкоженным именем бота | ⬜ не исправлен |
-| Б-А13 | 🟡 Средний | История меню пишется с old_value: null | ⬜ не исправлен |
+| Б-А11 | 🟡 Средний | formatLogDetail() выводит undefined при неполных данных | ✅ исправлен |
+| Б-А12 | 🟡 Средний | QR-код с захардкоженным именем бота | ✅ исправлен |
+| Б-А13 | 🟡 Средний | История меню пишется с old_value: null | ✅ исправлен |
 | Б-А14 | 🔵 Низкий | renderMenu() без escaping | ⬜ не исправлен |
 | Б-А15 | 🔵 Низкий | loadDashboard() глотает все ошибки | ⬜ не исправлен |
 | Б-А16 | 🔵 Низкий | setOrderStatus() перезагружает весь дашборд | ⬜ не исправлен |
@@ -536,25 +578,29 @@ PIN — всего 4 цифры (10 000 комбинаций). Зная URL ба
 | Б-А34 | 🔴 Критический | POST /customers не валидирует tg_id (подмена) | ✅ исправлен |
 | Б-А35 | 🔴 Критический | XSS в Mini App (меню, отзывы, акции, фото) | ✅ исправлен |
 | Б-А36 | 🔴 Критический | Нет rate-limit на POST /orders и /customers | ✅ исправлен |
-| Б-А37 | 🟡 Средний | refreshCupsFromApi выбирает промо по progress, а не id | ⬜ не исправлен |
-| Б-А38 | 🟡 Средний | Хардкод promoId = 1 в Mini App и backend | ⬜ не исправлен |
-| Б-А39 | 🟡 Средний | /orders/stats считает «сегодня» по UTC | ⬜ не исправлен |
-| Б-А40 | 🟡 Средний | saveItem: orphan-фото в Storage при ошибке | ⬜ не исправлен |
-| Б-А41 | 🟡 Средний | playBeep плодит AudioContext — beep глохнет после 6 заказов | ⬜ не исправлен |
-| Б-А42 | 🟡 Средний | barista logout не отписывается от Realtime | ⬜ не исправлен |
+| Б-А37 | 🟡 Средний | refreshCupsFromApi выбирает промо по progress, а не id | ✅ исправлен |
+| Б-А38 | 🟡 Средний | Хардкод promoId = 1 в Mini App и backend | ✅ исправлен |
+| Б-А39 | 🟡 Средний | /orders/stats считает «сегодня» по UTC | ✅ исправлен |
+| Б-А40 | 🟡 Средний | saveItem: orphan-фото в Storage при ошибке | ✅ исправлен |
+| Б-А41 | 🟡 Средний | playBeep плодит AudioContext — beep глохнет после 6 заказов | ✅ исправлен |
+| Б-А42 | 🟡 Средний | barista logout не отписывается от Realtime | ✅ исправлен |
 | Б-А43 | 🔵 Низкий | referral_code без retry на UNIQUE | ⬜ не исправлен |
 | Б-А44 | 🔵 Низкий | Рассылка — limit(1000) без пагинации | ⬜ не исправлен |
 | Б-А45 | 🔵 Низкий | logout не инвалидирует JWT на сервере | ⬜ не исправлен |
 | Б-А46 | 🔵 Низкий | Нет helmet — отсутствуют защитные заголовки | ⬜ не исправлен |
 | Б-А47 | 🔴 Критический | Нет rate-limit на /barista/login — брутфорс PIN | ✅ исправлен |
-| Б-А48 | 🟡 Средний | XSS в топ-товарах панели бариста | ⬜ не исправлен |
-| Б-А49 | 🟡 Средний | /barista/orders/status не валидирует status/payment | ⬜ не исправлен |
-| Б-А50 | 🟡 Средний | HTML-injection в приветствии бота | ⬜ не исправлен |
-| Б-А51 | 🟡 Средний | Нет ограничения длины текстовых полей в публичном API | ⬜ не исправлен |
-| Б-А52 | 🟡 Средний | CSS-injection через gradient в Mini App | ⬜ не исправлен |
-| Б-А53 | 🟡 Средний | multer без фильтра MIME — любой файл (в т.ч. SVG с JS) как фото | ⬜ не исправлен |
-| Б-А54 | 🟡 Средний | DELETE товара не удаляет фото из Storage (orphan) | ⬜ не исправлен |
-| Б-А55 | 🟡 Средний | limit/offset в admin API без потолка — DoS-риск | ⬜ не исправлен |
-| Б-А56 | 🟡 Средний | Нет валидации булевых полей vip/active/available | ⬜ не исправлен |
-| Б-А57 | 🟡 Средний | /analytics/chart группирует по UTC, а не MSK | ⬜ не исправлен |
-| Б-А58 | 🟡 Средний | upload/logo — расширение файла из MIME ломается для SVG/webp | ⬜ не исправлен |
+| Б-А48 | 🟡 Средний | XSS в топ-товарах панели бариста | ✅ исправлен |
+| Б-А49 | 🟡 Средний | /barista/orders/status не валидирует status/payment | ✅ исправлен |
+| Б-А50 | 🟡 Средний | HTML-injection в приветствии бота | ✅ исправлен |
+| Б-А51 | 🟡 Средний | Нет ограничения длины текстовых полей в публичном API | ✅ исправлен |
+| Б-А52 | 🟡 Средний | CSS-injection через gradient в Mini App | ✅ исправлен |
+| Б-А53 | 🟡 Средний | multer без фильтра MIME — любой файл (в т.ч. SVG с JS) как фото | ✅ исправлен |
+| Б-А54 | 🟡 Средний | DELETE товара не удаляет фото из Storage (orphan) | ✅ исправлен |
+| Б-А55 | 🟡 Средний | limit/offset в admin API без потолка — DoS-риск | ✅ исправлен |
+| Б-А56 | 🟡 Средний | Нет валидации булевых полей vip/active/available | ✅ исправлен |
+| Б-А57 | 🟡 Средний | /analytics/chart группирует по UTC, а не MSK | ✅ исправлен |
+| Б-А58 | 🟡 Средний | upload/logo — расширение файла из MIME ломается для SVG/webp | ✅ исправлен |
+| Б-А59 | 🟡 Средний | /api/customers/:tg_id и /referral без авторизации — утечка PII | ⬜ не исправлен |
+| Б-А60 | 🟡 Средний | /admin/barista-log без потолка limit — DoS-риск | ⬜ не исправлен |
+| Б-А61 | 🟡 Средний | PUT /menu/items/:id/sort без валидации sort_order | ⬜ не исправлен |
+| Б-А62 | 🟡 Средний | /shift/summary и /shift/close смешивают заказы разных барист | ⬜ не исправлен |

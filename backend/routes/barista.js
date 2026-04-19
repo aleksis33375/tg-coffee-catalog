@@ -200,6 +200,13 @@ router.get('/orders', auth('barista'), async (req, res) => {
 // PUT /api/barista/orders/:id/status
 router.put('/orders/:id/status', auth('barista'), async (req, res) => {
   const { status, payment } = req.body
+  // Б-А49: whitelist допустимых значений — защита от мусора в БД
+  const VALID_STATUSES = ['new', 'preparing', 'ready', 'done', 'cancelled']
+  const VALID_PAYMENTS = ['cash', 'card']
+  if (!VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Недопустимый статус' })
+  if (payment !== undefined && payment !== null && !VALID_PAYMENTS.includes(payment)) {
+    return res.status(400).json({ error: 'Недопустимый способ оплаты' })
+  }
   const updates = { status }
   if (payment) updates.payment = payment
 
@@ -354,8 +361,12 @@ router.post('/customers/cups', auth('barista'), async (req, res) => {
     return res.status(500).json({ error: 'Ошибка загрузки акции лояльности' })
   }
 
-  const promoId   = promo?.id   || 1
-  const totalCups = promo?.config?.total_cups || 6
+  // Б-А38: если активной акции нет — не городим фейковый promo_id=1.
+  // Без акции кружки не начисляем, иначе получим orphan-progress без привязки к реальной промо.
+  if (!promo) return res.status(409).json({ error: 'Активная акция лояльности не настроена' })
+
+  const promoId   = promo.id
+  const totalCups = promo.config?.total_cups || 6
 
   // Атомарный инкремент через оптимистичную блокировку (защита от гонки)
   // Читаем текущее значение → обновляем только если оно не изменилось → повторяем при конфликте
@@ -448,8 +459,11 @@ router.post('/customers/cups/reset', auth('barista'), async (req, res) => {
     return res.status(500).json({ error: 'Ошибка загрузки акции лояльности' })
   }
 
-  const promoId   = promo?.id || 1
-  const totalCups = promo?.config?.total_cups || 6
+  // Б-А38: без активной акции сбрасывать нечего и привязывать некуда
+  if (!promo) return res.status(409).json({ error: 'Активная акция лояльности не настроена' })
+
+  const promoId   = promo.id
+  const totalCups = promo.config?.total_cups || 6
 
   const { error: resetError } = await supabase
     .from('customer_promo_progress')

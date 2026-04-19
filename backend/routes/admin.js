@@ -8,7 +8,53 @@ const rateLimit = require('express-rate-limit')
 const supabase = require('../db')
 const auth = require('../middleware/auth')
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } })
+// Б-А53: MIME-whitelist — исключает SVG (может содержать <script>) и прочий мусор
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MIME_TO_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_MIMES.has(file.mimetype)) return cb(null, true)
+    cb(new Error('Разрешены только JPG, PNG, WebP или GIF'))
+  }
+})
+
+// Б-А54: извлечь имя файла из Supabase public URL для последующего удаления
+function extractStoragePath(url, bucket) {
+  if (!url || typeof url !== 'string') return null
+  const marker = `/storage/v1/object/public/${bucket}/`
+  const i = url.indexOf(marker)
+  if (i === -1) return null
+  return decodeURIComponent(url.substring(i + marker.length).split('?')[0])
+}
+
+// Б-А39/57: форматирование даты в таймзоне кофейни (по умолчанию Europe/Moscow)
+function dateInTZ(date, tz = 'Europe/Moscow') {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date)
+  const y = parts.find(p => p.type === 'year').value
+  const m = parts.find(p => p.type === 'month').value
+  const d = parts.find(p => p.type === 'day').value
+  return `${y}-${m}-${d}`
+}
+
+// Б-А39: получить ISO-начало дня (00:00) в указанной таймзоне
+function startOfDayISO(date, tz = 'Europe/Moscow') {
+  const ymd = dateInTZ(date, tz)
+  // Смещение таймзоны: берём из Date.toLocaleString с полем timeZoneName и парсим
+  // Проще: используем Europe/Moscow = UTC+3 (без DST с 2014 г.)
+  return `${ymd}T00:00:00+03:00`
+}
+
+// Б-А56: строгая валидация булевых значений
+function coerceBool(v) {
+  if (v === true || v === 'true') return true
+  if (v === false || v === 'false') return false
+  return null // невалидно
+}
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -93,7 +139,9 @@ router.post('/upload/image', auth('admin'), upload.single('image'), async (req, 
 // POST /api/admin/upload/logo
 router.post('/upload/logo', auth('admin'), upload.single('logo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не получен' })
-  const name = `logo-${Date.now()}.${req.file.mimetype.split('/')[1]}`
+  // Б-А58: брать расширение из whitelist, а не из mime-подстроки
+  const ext = MIME_TO_EXT[req.file.mimetype] || 'bin'
+  const name = `logo-${Date.now()}.${ext}`
   const { error } = await supabase.storage.from('cafe-assets').upload(name, req.file.buffer, {
     contentType: req.file.mimetype, upsert: true
   })
@@ -144,7 +192,10 @@ router.put('/menu/items/:id', auth('admin'), async (req, res) => {
   fields.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f] })
   if (updates.gradient && typeof updates.gradient === 'object') updates.gradient = JSON.stringify(updates.gradient)
 
-  const { data: old } = await supabase.from('menu_items').select('*').eq('id', id).single()
+  // Б-А13: если товар не существует — 404, не создаём запись в menu_history с old_value: null
+  const { data: old, error: oldErr } = await supabase.from('menu_items').select('*').eq('id', id).single()
+  if (oldErr || !old) return res.status(404).json({ error: 'Позиция не найдена' })
+
   const { data, error } = await supabase.from('menu_items').update(updates).eq('id', id).select().single()
   if (error) return res.status(500).json({ error: error.message })
 
@@ -159,9 +210,17 @@ router.put('/menu/items/:id', auth('admin'), async (req, res) => {
 // DELETE /api/admin/menu/items/:id
 router.delete('/menu/items/:id', auth('admin'), async (req, res) => {
   const { id } = req.params
-  const { data: old } = await supabase.from('menu_items').select('*').eq('id', id).single()
+  const { data: old, error: oldErr } = await supabase.from('menu_items').select('*').eq('id', id).single()
+  if (oldErr || !old) return res.status(404).json({ error: 'Позиция не найдена' })
+
   const { error } = await supabase.from('menu_items').delete().eq('id', id)
   if (error) return res.status(500).json({ error: error.message })
+
+  // Б-А54: удалить фото из Storage, чтобы не плодить orphan-файлы
+  const photoPath = extractStoragePath(old.photo_url, 'menu-images')
+  if (photoPath) {
+    await supabase.storage.from('menu-images').remove([photoPath]).catch(() => {})
+  }
 
   await supabase.from('menu_history').insert({
     item_id: Number(id), action: 'deleted', old_value: old, changed_by: 'admin'
@@ -172,7 +231,9 @@ router.delete('/menu/items/:id', auth('admin'), async (req, res) => {
 
 // PUT /api/admin/menu/items/:id/availability
 router.put('/menu/items/:id/availability', auth('admin'), async (req, res) => {
-  const { available } = req.body
+  // Б-А56: жёсткая валидация булева поля — иначе можно записать 'yes', 1, {} и т.п.
+  const available = coerceBool(req.body.available)
+  if (available === null) return res.status(400).json({ error: 'available должно быть true или false' })
   const { data, error } = await supabase.from('menu_items').update({ available }).eq('id', req.params.id).select().single()
   if (error) return res.status(500).json({ error: error.message })
   await supabase.from('menu_history').insert({
@@ -194,7 +255,10 @@ router.put('/menu/items/:id/sort', auth('admin'), async (req, res) => {
 
 // GET /api/admin/orders
 router.get('/orders', auth('admin'), async (req, res) => {
-  const { date, status, limit = 50, offset = 0 } = req.query
+  const { date, status } = req.query
+  // Б-А55: кап limit, чтобы недобросовестный клиент не выкачивал всю базу одним запросом
+  const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 50, 1), 200)
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0)
   let query = supabase.from('orders').select('*, customers(first_name, username)').order('created_at', { ascending: false }).range(offset, offset + limit - 1)
   if (status) query = query.eq('status', status)
   if (date) query = query.gte('created_at', date + 'T00:00:00').lte('created_at', date + 'T23:59:59')
@@ -206,6 +270,9 @@ router.get('/orders', auth('admin'), async (req, res) => {
 // PUT /api/admin/orders/:id/status
 router.put('/orders/:id/status', auth('admin'), async (req, res) => {
   const { status } = req.body
+  // Б-А49: whitelist допустимых статусов
+  const VALID_STATUSES = ['new', 'preparing', 'ready', 'done', 'cancelled']
+  if (!VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Недопустимый статус' })
   const { data, error } = await supabase.from('orders').update({ status }).eq('id', req.params.id).select().single()
   if (error) return res.status(500).json({ error: error.message })
 
@@ -219,13 +286,15 @@ router.put('/orders/:id/status', auth('admin'), async (req, res) => {
 
 // GET /api/admin/orders/stats
 router.get('/orders/stats', auth('admin'), async (req, res) => {
+  // Б-А39: «сегодня» считаем по Europe/Moscow, а не по UTC,
+  // иначе после 00:00 МСК цифры за день сбрасываются только после 03:00 МСК
   const now = new Date()
-  const today = now.toISOString().split('T')[0]
-  const weekAgo = new Date(now - 7 * 86400000).toISOString()
-  const monthAgo = new Date(now - 30 * 86400000).toISOString()
+  const todayStart = startOfDayISO(now)
+  const weekAgo    = new Date(now - 7  * 86400000).toISOString()
+  const monthAgo   = new Date(now - 30 * 86400000).toISOString()
 
   const [todayRes, weekRes, monthRes] = await Promise.all([
-    supabase.from('orders').select('total').gte('created_at', today + 'T00:00:00').eq('status', 'done'),
+    supabase.from('orders').select('total').gte('created_at', todayStart).eq('status', 'done'),
     supabase.from('orders').select('total').gte('created_at', weekAgo).eq('status', 'done'),
     supabase.from('orders').select('total').gte('created_at', monthAgo).eq('status', 'done')
   ])
@@ -272,7 +341,9 @@ router.put('/baristas/:id/pin', auth('admin'), async (req, res) => {
 
 // PUT /api/admin/baristas/:id/active
 router.put('/baristas/:id/active', auth('admin'), async (req, res) => {
-  const { active } = req.body
+  // Б-А56: строгая валидация boolean
+  const active = coerceBool(req.body.active)
+  if (active === null) return res.status(400).json({ error: 'active должно быть true или false' })
   const { data, error } = await supabase.from('baristas').update({ active }).eq('id', req.params.id).select('id, name, active').single()
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
@@ -282,7 +353,10 @@ router.put('/baristas/:id/active', auth('admin'), async (req, res) => {
 
 // GET /api/admin/customers
 router.get('/customers', auth('admin'), async (req, res) => {
-  const { status, source, vip, limit = 50, offset = 0 } = req.query
+  const { status, source, vip } = req.query
+  // Б-А55: кап limit для /customers по той же причине, что и для /orders
+  const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 50, 1), 200)
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0)
   let query = supabase.from('customers').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1)
   if (status) query = query.eq('status', status)
   if (source) query = query.eq('source', source)
@@ -294,7 +368,9 @@ router.get('/customers', auth('admin'), async (req, res) => {
 
 // PUT /api/admin/customers/:tg_id/vip
 router.put('/customers/:tg_id/vip', auth('admin'), async (req, res) => {
-  const { vip } = req.body
+  // Б-А56: строгая валидация boolean
+  const vip = coerceBool(req.body.vip)
+  if (vip === null) return res.status(400).json({ error: 'vip должно быть true или false' })
   const { data, error } = await supabase.from('customers').update({ vip }).eq('tg_id', req.params.tg_id).select().single()
   if (error) return res.status(500).json({ error: error.message })
   res.json(data)
@@ -407,10 +483,11 @@ router.get('/analytics/chart', auth('admin'), async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message })
 
-  // Группируем по дате
+  // Б-А57: группируем по дате в таймзоне кофейни (Europe/Moscow), а не по UTC,
+  // чтобы заказы после 00:00 МСК попадали в правильный день, а не в предыдущий
   const byDate = {}
   ;(data || []).forEach(o => {
-    const date = o.created_at.slice(0, 10)
+    const date = dateInTZ(new Date(o.created_at))
     if (!byDate[date]) byDate[date] = { revenue: 0, orders: 0 }
     byDate[date].revenue += o.total || 0
     byDate[date].orders++
@@ -419,7 +496,7 @@ router.get('/analytics/chart', auth('admin'), async (req, res) => {
   // Заполняем все дни периода (без пропусков)
   const result = []
   for (let i = period - 1; i >= 0; i--) {
-    const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+    const date = dateInTZ(new Date(Date.now() - i * 86400000))
     result.push({ date, ...(byDate[date] || { revenue: 0, orders: 0 }) })
   }
 

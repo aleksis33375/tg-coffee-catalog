@@ -78,7 +78,18 @@ router.get('/menu', async (req, res) => {
   const cafe = {}
   if (settings) settings.forEach(s => { cafe[s.key] = s.value })
 
-  res.json({ cafe, items: data })
+  // Б-А38: отдаём актуальный id акции лояльности,
+  // чтобы клиент не хардкодил «promo_id === 1»
+  const { data: promo } = await supabase
+    .from('promos')
+    .select('id, config')
+    .eq('type', 'loyalty_cups')
+    .eq('active', true)
+    .maybeSingle()
+
+  const loyalty = promo ? { promo_id: promo.id, total_cups: promo.config?.total_cups || 6 } : null
+
+  res.json({ cafe, items: data, loyalty })
 })
 
 // POST /api/customers — зарегистрировать клиента при первом заходе
@@ -91,8 +102,9 @@ router.post('/customers', publicWriteLimiter, async (req, res) => {
   if (!check.ok) return res.status(401).json({ error: 'Неверная подпись Telegram' })
 
   const tg_id = String(check.user.id)
-  const first_name = check.user.first_name || ''
-  const username = check.user.username || ''
+  // Б-А51: ограничение длины строк от Telegram — защита от мусора в БД
+  const first_name = String(check.user.first_name || '').slice(0, 100)
+  const username   = String(check.user.username   || '').slice(0, 64)
 
   // Проверить существует ли клиент
   const { data: existing } = await supabase
@@ -188,7 +200,11 @@ router.get('/customers/:tg_id/referral', async (req, res) => {
 
 // POST /api/orders — принять заказ (Б-А33: total пересчитывается на сервере)
 router.post('/orders', publicWriteLimiter, async (req, res) => {
-  const { init_data, items, delivery_type, delivery_time, comment } = req.body
+  const { init_data, items, delivery_type } = req.body
+  // Б-А51: жёстко ограничиваем длину текстовых полей, иначе можно записать
+  // в БД мегабайтный "комментарий" и раздуть диск
+  const comment       = typeof req.body.comment       === 'string' ? req.body.comment.slice(0, 500)       : null
+  const delivery_time = typeof req.body.delivery_time === 'string' ? req.body.delivery_time.slice(0, 200) : null
 
   // Б-А34 (для заказов): tg_id обязателен и должен быть подписан Telegram
   const check = verifyTelegramInitData(init_data, process.env.BOT_TOKEN)
@@ -198,6 +214,8 @@ router.post('/orders', publicWriteLimiter, async (req, res) => {
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items обязательны' })
   }
+  // Б-А51: ограничение количества позиций в заказе (защита от flood)
+  if (items.length > 50) return res.status(400).json({ error: 'Слишком много позиций' })
 
   // Базовая валидация структуры позиций
   const badItem = items.find(i => !i || typeof i.id !== 'number' || typeof i.qty !== 'number' || i.qty <= 0 || i.qty > 100)

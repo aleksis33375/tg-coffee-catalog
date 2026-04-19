@@ -66,10 +66,14 @@ async function loadMenu() {
   try {
     const res = await fetch(API_BASE + '/menu');
     if (!res.ok) throw new Error('Ошибка сервера');
-    const { cafe, items } = await res.json();
+    const { cafe, items, loyalty } = await res.json();
 
     // Строим список категорий из данных (сохраняем порядок первого появления)
     const cats = [...new Set(items.map(i => i.category).filter(Boolean))];
+
+    // Б-А52: валидация hex-цвета — защита от CSS-инъекции в inline style
+    // (админ мог сохранить строку вида `red;}</style><script>`)
+    const isHexColor = (v) => typeof v === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)
 
     // Нормализуем поля товаров под формат приложения
     const normalizedItems = items.map(item => {
@@ -82,6 +86,10 @@ async function loadMenu() {
       } else if (typeof item.gradient === 'string') {
         try { gradient = JSON.parse(item.gradient); } catch {}
       }
+      // Б-А52: если что-то не hex — откатываемся к дефолту категории
+      if (!Array.isArray(gradient) || gradient.length !== 2 || !isHexColor(gradient[0]) || !isHexColor(gradient[1])) {
+        gradient = def.gradient || DEFAULT_GRADIENT;
+      }
 
       return {
         ...item,
@@ -92,7 +100,10 @@ async function loadMenu() {
     });
 
     const staticPromos = getStaticPromos();
-    state.cupsPromoId = 1; // promo_id акции loyalty_cups в БД
+    // Б-А38: берём promo_id и порог из backend, а не хардкодим — акция может быть
+    // пересоздана с другим id, или её может вообще не быть
+    state.cupsPromoId = loyalty?.promo_id ?? null
+    if (loyalty?.total_cups) state.cupsTotalCups = loyalty.total_cups
 
     state.menuData = {
       cafe: {
@@ -568,7 +579,7 @@ function getCupsCount() {
 }
 
 async function refreshCupsFromApi() {
-  if (!state.tgId) return;
+  if (!state.tgId || !state.cupsPromoId) return; // Б-А38: без акции не ищем progress
   try {
     const { progress } = await fetch(API_BASE + '/customers/' + state.tgId)
       .then(r => r.json())

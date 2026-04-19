@@ -388,8 +388,11 @@ async function saveItem() {
   isSavingItem = true
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Сохранение...' }
 
+  // Б-А40: если позиция не сохранилась, а фото уже загружено в Storage —
+  // сообщаем пользователю, что файл остался (потом подчистит DELETE /menu/items/:id,
+  // а при создании – админ сохранит заново с тем же файлом)
+  let uploadedPhotoUrl = null
   try {
-    // Загрузить фото если выбрано
     const photoFile = document.getElementById('f-photo').files[0]
     if (photoFile) {
       try {
@@ -397,6 +400,7 @@ async function saveItem() {
         form.append('image', photoFile)
         const { url } = await api('POST', '/admin/upload/image', form, true)
         body.photo_url = url
+        uploadedPhotoUrl = url
       } catch (e) { toast('Ошибка загрузки фото: ' + e.message, true); return }
     }
 
@@ -408,9 +412,16 @@ async function saveItem() {
         await api('POST', '/admin/menu/items', body)
         toast('Позиция добавлена')
       }
+      uploadedPhotoUrl = null // всё ок — фото привязано к позиции
       closeItemForm()
       await loadMenu()
-    } catch (e) { toast(e.message, true) }
+    } catch (e) {
+      if (uploadedPhotoUrl) {
+        toast('Позиция не сохранена. Фото загружено, но не привязано — попробуй ещё раз', true)
+      } else {
+        toast(e.message, true)
+      }
+    }
   } finally {
     isSavingItem = false
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Сохранить' }
@@ -701,8 +712,20 @@ function exportCustomersCSV() {
 
 // ── QR-КОД ────────────────────────────────────────────────────────────────────
 
-function generateQR() {
-  const botUrl = 'https://t.me/Prototip_Coffee_house_bot?start=cup'
+async function generateQR() {
+  // Б-А12: тянем имя бота из настроек, а не хардкодим старый username
+  let botUsername = ''
+  try {
+    const s = await api('GET', '/admin/settings')
+    botUsername = (s.bot_username || '').trim()
+  } catch {}
+
+  if (!botUsername) {
+    toast('Сначала укажи имя бота в настройках', true)
+    return
+  }
+
+  const botUrl = `https://t.me/${botUsername}?start=cup`
   const container = document.getElementById('qr-container')
   container.innerHTML = ''
   const canvas = document.createElement('canvas')
@@ -747,10 +770,12 @@ async function loadBaristaLog() {
 }
 
 function formatLogDetail(action, d) {
-  if (action === 'cup_added')      return `${d.cups_after}/${d.total_cups}`
-  if (action === 'status_changed') return d.status || ''
-  if (action === 'birthday_set')   return d.birthday || ''
-  if (action === 'shift_closed')   return `${d.orders_count} заказов`
+  // Б-А11: фолбэк на '—' вместо undefined/NaN, если поля нет в старых логах
+  if (!d || typeof d !== 'object') return ''
+  if (action === 'cup_added')      return `${d.cups_after ?? '—'}/${d.total_cups ?? '—'}`
+  if (action === 'status_changed') return d.status || '—'
+  if (action === 'birthday_set')   return d.birthday || '—'
+  if (action === 'shift_closed')   return `${d.orders_count ?? 0} заказов`
   return ''
 }
 

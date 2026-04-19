@@ -65,9 +65,16 @@ function showMainTab(tab) {
 
 // ── ЗВУК ─────────────────────────────────────────────────────────────────────
 
+// Б-А41: один общий AudioContext на весь сеанс.
+// Создание нового на каждый звонок течёт по памяти, а браузер ещё и упирается
+// в лимит одновременных контекстов (~6 в Chrome) после пары десятков заказов
+let _audioCtx = null
 function playBeep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    // iOS блокирует AudioContext до первого touch — возобновляем, если заснул
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {})
+    const ctx = _audioCtx
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain)
@@ -283,11 +290,13 @@ async function loadEmptyState() {
     const top = await api('GET', '/barista/analytics/top-items')
     const topEl = document.getElementById('top-items')
     if (top.length) {
+      // Б-А48: экранируем название и количество — name приходит из заказов клиента,
+      // может содержать HTML если позиция была импортирована с кавычками/тегами
       topEl.innerHTML = '<h4>Топ за месяц</h4>' +
         top.map((i, idx) => `
           <div class="top-item-row">
-            <span>${idx + 1}. ${i.name}</span>
-            <span class="top-item-count">${i.count} шт</span>
+            <span>${idx + 1}. ${escHtml(i.name)}</span>
+            <span class="top-item-count">${escHtml(i.count)} шт</span>
           </div>`).join('')
     }
   } catch {}
@@ -301,12 +310,16 @@ async function loadEmptyState() {
 
 // ── REALTIME ──────────────────────────────────────────────────────────────────
 
+let realtimeChannel = null
+
 async function startRealtime() {
+  // Б-А42: на всякий случай отключаем предыдущий канал, если был
+  await stopRealtime()
   try {
     const { supabase_url, supabase_anon_key } = await api('GET', '/config')
     supabaseClient = supabase.createClient(supabase_url, supabase_anon_key)
 
-    supabaseClient
+    realtimeChannel = supabaseClient
       .channel('new-orders')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'orders' },
@@ -325,6 +338,17 @@ async function startRealtime() {
         }
       })
   } catch {}
+}
+
+// Б-А42: при выходе/закрытии смены отписываемся от канала,
+// иначе socket остаётся висеть в фоне и продолжает получать события
+async function stopRealtime() {
+  try {
+    if (realtimeChannel && supabaseClient) {
+      await supabaseClient.removeChannel(realtimeChannel)
+    }
+  } catch {}
+  realtimeChannel = null
 }
 
 // ── ЗАКРЫТИЕ СМЕНЫ ────────────────────────────────────────────────────────────
@@ -356,6 +380,8 @@ async function closeShift() {
     await api('POST', '/barista/shift/close')
     closeModal()
     toast('✅ Смена закрыта')
+    // Б-А42: при выходе обрываем Realtime-канал до очистки состояния
+    await stopRealtime()
     setTimeout(() => {
       TOKEN = ''
       BARISTA_NAME = ''

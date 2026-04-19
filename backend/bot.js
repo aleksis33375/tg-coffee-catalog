@@ -49,7 +49,12 @@ function createBot(token, miniAppUrl) {
         .eq('tg_id', tgId)
     }
 
-    const greeting = firstName ? `Привет, ${firstName}! ` : 'Привет! '
+    // Б-А50: экранируем first_name для HTML-режима — иначе имя вроде
+    // "<script>" или "&amp;" ломает сообщение (parse_mode: 'HTML' ниже)
+    const escapeHTML = (s) => String(s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ))
+    const greeting = firstName ? `Привет, ${escapeHTML(firstName)}! ` : 'Привет! '
     const text = greeting +
       '☕ Добро пожаловать в <b>Hot Black Coffee</b>!\n\n' +
       'Здесь ты можешь выбрать напиток и оформить заказ прямо в Telegram — ' +

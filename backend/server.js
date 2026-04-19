@@ -20,7 +20,9 @@ app.use(cors({
   credentials: true
 }))
 
-app.use(express.json())
+// Б-А51: ограничение размера JSON-тела — защита от DoS «огромным телом».
+// 10 КБ хватает на все сценарии (заказ на 50 позиций + init_data + комментарий)
+app.use(express.json({ limit: '10kb' }))
 
 // Статика: Mini App, adminка и интерфейс бариста
 const staticOpts = { maxAge: '7d' }
